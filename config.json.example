@@ -8,5 +8,6 @@
     "waiting_time": 120,
     "time_removal_after_skip": 20,
     "min_fast_turn_time": 15,
-    "min_players": 2
+    "min_players": 2,
+    "bot_username": "unobot"
 }
