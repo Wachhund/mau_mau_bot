@@ -19,6 +19,7 @@
 
 
 import gettext
+from contextvars import ContextVar
 from functools import wraps
 
 from locales import available_locales
@@ -28,6 +29,8 @@ from shared_vars import gm
 
 GETTEXT_DOMAIN = 'unobot'
 GETTEXT_DIR = 'locales'
+
+_locale_stack: ContextVar[list] = ContextVar('locale_stack', default=[])
 
 
 class _Underscore(object):
@@ -43,27 +46,37 @@ class _Underscore(object):
             in available_locales.keys()
             if locale != 'en_US'  # No translation file for en_US
         }
-        self.locale_stack = list()
 
     def push(self, locale):
-        self.locale_stack.append(locale)
+        stack = _locale_stack.get([])
+        _locale_stack.set(stack + [locale])
 
     def pop(self):
-        if self.locale_stack:
-            return self.locale_stack.pop()
-        else:
-            return None
+        stack = _locale_stack.get([])
+        if stack:
+            locale = stack[-1]
+            _locale_stack.set(stack[:-1])
+            return locale
+        return None
 
     @property
     def code(self):
-        if self.locale_stack:
-            return self.locale_stack[-1]
-        else:
-            return None
+        stack = _locale_stack.get([])
+        if stack:
+            return stack[-1]
+        return None
+
+    @property
+    def locale_stack(self):
+        return _locale_stack.get([])
 
     def __call__(self, singular, plural=None, n=1, locale=None):
         if not locale:
-            locale = self.locale_stack[-1]
+            stack = _locale_stack.get([])
+            if stack:
+                locale = stack[-1]
+            else:
+                locale = 'en_US'
 
         if locale not in self.translators.keys():
             if n == 1:
@@ -84,12 +97,13 @@ _ = _Underscore()
 def __(singular, plural=None, n=1, multi=False):
     """Translates text into all locales on the stack"""
     translations = list()
+    stack = _locale_stack.get([])
 
-    if not multi and len(set(_.locale_stack)) >= 1:
+    if not multi and len(set(stack)) >= 1:
         translations.append(_(singular, plural, n, 'en_US'))
 
     else:
-        for locale in _.locale_stack:
+        for locale in stack:
             translation = _(singular, plural, n, locale)
 
             if translation not in translations:
@@ -100,8 +114,7 @@ def __(singular, plural=None, n=1, multi=False):
 
 def user_locale(func):
     @wraps(func)
-    @db_session
-    def wrapped(update, context, *pargs, **kwargs):
+    async def wrapped(update, context, *pargs, **kwargs):
         user = _user_chat_from_update(update)[0]
 
         with db_session:
@@ -112,7 +125,7 @@ def user_locale(func):
         else:
             _.push('en_US')
 
-        result = func(update, context, *pargs, **kwargs)
+        result = await func(update, context, *pargs, **kwargs)
         _.pop()
         return result
     return wrapped
@@ -120,15 +133,15 @@ def user_locale(func):
 
 def game_locales(func):
     @wraps(func)
-    @db_session
-    def wrapped(update, context, *pargs, **kwargs):
+    async def wrapped(update, context, *pargs, **kwargs):
         user, chat = _user_chat_from_update(update)
         player = gm.player_for_user_in_chat(user, chat)
         locales = list()
 
         if player:
             for player in player.game.players:
-                us = UserSetting.get(id=player.user.id)
+                with db_session:
+                    us = UserSetting.get(id=player.user.id)
 
                 if us and us.lang != 'en':
                     loc = us.lang
@@ -141,13 +154,18 @@ def game_locales(func):
                 _.push(loc)
                 locales.append(loc)
 
-        result = func(update, context, *pargs, **kwargs)
+        result = await func(update, context, *pargs, **kwargs)
 
         while _.code:
             _.pop()
 
         return result
     return wrapped
+
+
+def set_locale_stack(locales):
+    """Set the locale stack directly, for use in job callbacks"""
+    _locale_stack.set(list(locales))
 
 
 def _user_chat_from_update(update):

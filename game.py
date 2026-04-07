@@ -18,6 +18,7 @@
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 
+import asyncio
 import logging
 from config import ADMIN_LIST, OPEN_LOBBY, DEFAULT_GAMEMODE, ENABLE_TRANSLATIONS
 from datetime import datetime
@@ -43,6 +44,7 @@ class Game(object):
     def __init__(self, chat):
         self.chat = chat
         self.last_card = None
+        self.lock = asyncio.Lock()
 
         self.deck = Deck()
 

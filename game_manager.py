@@ -18,13 +18,14 @@
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 
+import asyncio
 import logging
 
 from game import Game
 from player import Player
 from errors import (AlreadyJoinedError, LobbyClosedError, NoGameInChatError,
                     NotEnoughPlayersError)
-from promotions import send_promotion_async
+from promotions import send_promotion
 
 class GameManager(object):
     """ Manages all running games by using a confusing amount of dicts """
@@ -34,8 +35,15 @@ class GameManager(object):
         self.userid_players = dict()
         self.userid_current = dict()
         self.remind_dict = dict()
+        self.chat_locks = dict()
 
         self.logger = logging.getLogger(__name__)
+
+    def get_chat_lock(self, chat_id):
+        """Returns the asyncio.Lock for a given chat, creating one if needed"""
+        if chat_id not in self.chat_locks:
+            self.chat_locks[chat_id] = asyncio.Lock()
+        return self.chat_locks[chat_id]
 
     def new_game(self, chat):
         """
@@ -137,13 +145,13 @@ class GameManager(object):
                 del self.userid_current[user.id]
                 del self.userid_players[user.id]
 
-    def end_game(self, chat, user):
+    async def end_game(self, chat, user):
         """
         End a game
         """
 
         self.logger.info("Game in chat " + str(chat.id) + " ended")
-        send_promotion_async(chat, chance=0.15)
+        await send_promotion(chat, chance=0.15)
 
         # Find the correct game instance to end
         player = self.player_for_user_in_chat(user, chat)

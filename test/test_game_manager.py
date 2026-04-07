@@ -18,6 +18,7 @@
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 
+import asyncio
 import unittest
 
 from telegram import User, Chat
@@ -38,9 +39,9 @@ class Test(unittest.TestCase):
         self.chat1 = Chat(1, 'group')
         self.chat2 = Chat(2, 'group')
 
-        self.user0 = User(0, 'user0')
-        self.user1 = User(1, 'user1')
-        self.user2 = User(2, 'user2')
+        self.user0 = User(0, 'user0', is_bot=False)
+        self.user1 = User(1, 'user1', is_bot=False)
+        self.user2 = User(2, 'user2', is_bot=False)
 
     def test_new_game(self):
         g0 = self.gm.new_game(self.chat0)
@@ -101,10 +102,10 @@ class Test(unittest.TestCase):
         self.gm.new_game(self.chat0)
         self.gm.join_game(self.user2, self.chat0)
 
-        self.gm.end_game(self.chat0, self.user0)
+        asyncio.run(self.gm.end_game(self.chat0, self.user0))
         self.assertEqual(len(self.gm.chatid_games[0]), 1)
 
-        self.gm.end_game(self.chat0, self.user2)
+        asyncio.run(self.gm.end_game(self.chat0, self.user2))
         self.assertFalse(0 in self.gm.chatid_games)
         self.assertFalse(0 in self.gm.userid_players)
         self.assertFalse(1 in self.gm.userid_players)

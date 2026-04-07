@@ -19,16 +19,20 @@
 
 
 import logging
+import time
+
 from telegram import Update
-from telegram.ext import CallbackContext
+from telegram.ext import ContextTypes
 
 from internationalization import _, __
-from mwt import MWT
-from shared_vars import gm, dispatcher
+from shared_vars import gm
 
 logger = logging.getLogger(__name__)
 
 TIMEOUT = 2.5
+
+_admin_cache = {}
+_admin_cache_timeout = 60 * 60
 
 
 def list_subtract(list1, list2):
@@ -77,31 +81,31 @@ def display_color_group(color, game):
             emoji='💛')
 
 
-def error(update: Update, context: CallbackContext):
+async def error(update: object, context: ContextTypes.DEFAULT_TYPE):
     """Simple error handler"""
     logger.exception(context.error)
 
 
-def send_async(bot, *args, **kwargs):
+async def send_async(bot, *args, **kwargs):
     """Send a message asynchronously"""
     if 'timeout' not in kwargs:
         kwargs['timeout'] = TIMEOUT
 
     try:
-        dispatcher.run_async(bot.sendMessage, *args, **kwargs)
+        await bot.send_message(*args, **kwargs)
     except Exception as e:
-        error(None, None, e)
+        logger.exception(e)
 
 
-def answer_async(bot, *args, **kwargs):
+async def answer_async(bot, *args, **kwargs):
     """Answer an inline query asynchronously"""
     if 'timeout' not in kwargs:
         kwargs['timeout'] = TIMEOUT
 
     try:
-        dispatcher.run_async(bot.answerInlineQuery, *args, **kwargs)
+        await bot.answer_inline_query(*args, **kwargs)
     except Exception as e:
-        error(None, None, e)
+        logger.exception(e)
 
 
 def game_is_running(game):
@@ -112,15 +116,23 @@ def user_is_creator(user, game):
     return user.id in game.owner
 
 
-def user_is_admin(user, bot, chat):
-    return user.id in get_admin_ids(bot, chat.id)
+async def user_is_creator_or_admin(user, game, bot, chat):
+    return user_is_creator(user, game) or await user_is_admin(bot, chat, user)
 
 
-def user_is_creator_or_admin(user, game, bot, chat):
-    return user_is_creator(user, game) or user_is_admin(user, bot, chat)
+async def user_is_admin(bot, chat, user):
+    admin_ids = await get_admin_ids(bot, chat.id)
+    return user.id in admin_ids
 
 
-@MWT(timeout=60*60)
-def get_admin_ids(bot, chat_id):
+async def get_admin_ids(bot, chat_id):
     """Returns a list of admin IDs for a given chat. Results are cached for 1 hour."""
-    return [admin.user.id for admin in bot.get_chat_administrators(chat_id)]
+    now = time.time()
+    if chat_id in _admin_cache:
+        ids, timestamp = _admin_cache[chat_id]
+        if now - timestamp < _admin_cache_timeout:
+            return ids
+    admins = await bot.get_chat_administrators(chat_id)
+    ids = [admin.user.id for admin in admins]
+    _admin_cache[chat_id] = (ids, now)
+    return ids

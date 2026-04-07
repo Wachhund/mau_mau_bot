@@ -17,17 +17,18 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-from telegram import ParseMode, Update
-from telegram.ext import CommandHandler, CallbackContext
+from telegram import Update
+from telegram.constants import ParseMode
+from telegram.ext import CommandHandler, ContextTypes
 
 from user_setting import UserSetting
 from utils import send_async
-from shared_vars import dispatcher
+from shared_vars import application
 from internationalization import _, user_locale
 from promotions import send_promotion
 
 @user_locale
-def help_handler(update: Update, context: CallbackContext):
+async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler for the /help command"""
     help_text = _("Follow these steps:\n\n"
       "1. Add this bot to a group\n"
@@ -65,19 +66,17 @@ def help_handler(update: Update, context: CallbackContext):
       "<a href=\"https://telegram.me/unobotnews\">update channel</a>"
       " and buy an UNO card game.")
 
-    def _send():
-      update.message.chat.send_message(
-          help_text,
-          parse_mode=ParseMode.HTML,
-          disable_web_page_preview=True,
-      )
-      send_promotion(update.effective_chat)
-
-    context.dispatcher.run_async(_send)
+    await context.bot.send_message(
+        update.message.chat_id,
+        help_text,
+        parse_mode=ParseMode.HTML,
+        disable_web_page_preview=True,
+    )
+    await send_promotion(update.effective_chat)
 
 @user_locale
-def modes(update: Update, context: CallbackContext):
-    """Handler for the /help command"""
+async def modes(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler for the /modes command"""
     modes_explanation = _("This UNO bot has four game modes: Classic, Sanic, Wild and Text.\n\n"
       " 🎻 The Classic mode uses the conventional UNO deck and there is no auto skip.\n"
       " 🚀 The Sanic mode uses the conventional UNO deck and the bot automatically skips a player if he/she takes too long to play its turn\n"
@@ -85,12 +84,12 @@ def modes(update: Update, context: CallbackContext):
       " ✍️ The Text mode uses the conventional UNO deck but instead of stickers it uses the text.\n\n"
       "To change the game mode, the GAME CREATOR has to type the bot nickname and a space, "
       "just like when playing a card, and all gamemode options should appear.")
-    send_async(context.bot, update.message.chat_id, text=modes_explanation,
+    await send_async(context.bot, update.message.chat_id, text=modes_explanation,
                parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
 @user_locale
-def source(update: Update, context: CallbackContext):
-    """Handler for the /help command"""
+async def source(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler for the /source command"""
     source_text = _("This bot is Free Software and licensed under the AGPL. "
       "The code is available here: \n"
       "https://github.com/jh0ker/mau_mau_bot")
@@ -102,25 +101,25 @@ def source(update: Update, context: CallbackContext):
       "Originals available on http://game-icons.net\n"
       "Icons edited by ɳick")
 
-    send_async(context.bot, update.message.chat_id, text=source_text + '\n' +
+    await send_async(context.bot, update.message.chat_id, text=source_text + '\n' +
                                                  attributions,
                parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
 
 @user_locale
-def news(update: Update, context: CallbackContext):
+async def news(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler for the /news command"""
-    send_async(context.bot, update.message.chat_id,
+    await send_async(context.bot, update.message.chat_id,
                text=_("All news here: https://telegram.me/unobotnews"),
                disable_web_page_preview=True)
 
 
 @user_locale
-def stats(update: Update, context: CallbackContext):
+async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user
     us = UserSetting.get(id=user.id)
     if not us or not us.stats:
-        send_async(context.bot, update.message.chat_id,
+        await send_async(context.bot, update.message.chat_id,
                    text=_("You did not enable statistics. Use /settings in "
                           "a private chat with the bot to enable them."))
     else:
@@ -148,13 +147,13 @@ def stats(update: Update, context: CallbackContext):
               n).format(number=n)
         )
 
-        send_async(context.bot, update.message.chat_id,
+        await send_async(context.bot, update.message.chat_id,
                    text='\n'.join(stats_text))
 
 
 def register():
-    dispatcher.add_handler(CommandHandler('help', help_handler))
-    dispatcher.add_handler(CommandHandler('source', source))
-    dispatcher.add_handler(CommandHandler('news', news))
-    dispatcher.add_handler(CommandHandler('stats', stats))
-    dispatcher.add_handler(CommandHandler('modes', modes))
+    application.add_handler(CommandHandler('help', help_handler))
+    application.add_handler(CommandHandler('source', source))
+    application.add_handler(CommandHandler('news', news))
+    application.add_handler(CommandHandler('stats', stats))
+    application.add_handler(CommandHandler('modes', modes))

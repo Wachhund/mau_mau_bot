@@ -75,6 +75,7 @@ class Test(unittest.TestCase):
     def test_draw(self):
         p = Player(self.game, "Player 0")
         self.game.start()
+        self.game.draw_counter = 0  # Reset in case first card was DRAW_TWO
 
         deck_before = len(self.game.deck.cards)
         top_card = self.game.deck.cards[-1]

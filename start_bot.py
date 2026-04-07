@@ -21,5 +21,5 @@
 # a Webhook
 
 
-def start_bot(updater):
-    updater.start_polling()
+def start_bot(application):
+    application.run_polling()
