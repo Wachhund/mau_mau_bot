@@ -20,6 +20,7 @@
 
 import os
 import json
+import sys
 
 try:
     with open("config.json", "r") as f:
@@ -28,11 +29,17 @@ except FileNotFoundError:
     config = {}
 
 TOKEN = os.getenv("TOKEN", config.get("token"))
+if not TOKEN:
+    sys.exit("ERROR: Bot token is not configured. Set 'token' in config.json or TOKEN environment variable.")
+
 WORKERS = int(os.getenv("WORKERS", config.get("workers", 32)))
 ADMIN_LIST = os.getenv("ADMIN_LIST", config.get("admin_list", None))
 
 if isinstance(ADMIN_LIST, str):
-    ADMIN_LIST = set(int(x) for x in ADMIN_LIST.split())
+    try:
+        ADMIN_LIST = set(int(x) for x in ADMIN_LIST.split())
+    except ValueError:
+        sys.exit("ERROR: ADMIN_LIST contains non-numeric values. Expected space-separated user IDs.")
 
 OPEN_LOBBY = os.getenv("OPEN_LOBBY", config.get("open_lobby", True))
 ENABLE_TRANSLATIONS = os.getenv("ENABLE_TRANSLATIONS", config.get("enable_translations", False))

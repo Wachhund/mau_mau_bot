@@ -165,8 +165,9 @@ async def join_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
             gm.join_game(update.message.from_user, chat)
 
         except LobbyClosedError:
+                game = gm.chatid_games.get(chat.id, [None])[-1]
                 await send_async(context.bot, chat.id, text=_("The lobby is closed"),
-                           message_thread_id=thread_id)
+                           message_thread_id=game.thread_id if game else thread_id)
                 return
 
         except NoGameInChatError:
@@ -178,25 +179,30 @@ async def join_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         except AlreadyJoinedError:
+            game = gm.chatid_games.get(chat.id, [None])[-1]
             await send_async(context.bot, chat.id,
                        text=_("You already joined the game. Start the game "
                               "with /start"),
                        reply_to_message_id=update.message.message_id,
-                       message_thread_id=thread_id)
+                       message_thread_id=game.thread_id if game else thread_id)
             return
 
         except DeckEmptyError:
+            game = gm.chatid_games.get(chat.id, [None])[-1]
             await send_async(context.bot, chat.id,
                        text=_("There are not enough cards left in the deck for "
                               "new players to join."),
                        reply_to_message_id=update.message.message_id,
-                       message_thread_id=thread_id)
+                       message_thread_id=game.thread_id if game else thread_id)
             return
 
+    # Success — get the game the player just joined
+    player = gm.player_for_user_in_chat(update.message.from_user, chat)
+    game_thread = player.game.thread_id if player else thread_id
     await send_async(context.bot, chat.id,
                text=_("Joined the game"),
                reply_to_message_id=update.message.message_id,
-               message_thread_id=thread_id)
+               message_thread_id=game_thread)
 
 
 @user_locale
@@ -700,7 +706,12 @@ async def reply_to_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
                 add_gameinfo(game, results)
 
-        elif user_id != game.current_player.user.id or not game.started:
+        elif user_id != game.current_player.user.id:
+            # Not the current player — show cards as not playable.
+            # Defensive: if draw_counter > 0 and this player is next,
+            # the turn may still be transitioning — show draw option.
+            if game.draw_counter and game.current_player.next.user.id == user_id:
+                add_draw(player, results)
             for card in sorted(player.cards):
                 add_card(game, card, results, can_play=False)
 
@@ -827,7 +838,13 @@ application.add_error_handler(error)
 
 
 async def post_init(application):
-    """Set bot commands on startup so Telegram clients show them"""
+    """Set bot commands and validate configuration on startup"""
+    me = await application.bot.get_me()
+    if not me.supports_inline_queries:
+        logger.warning("Inline mode is NOT enabled for @%s. "
+                       "Players will not be able to select cards. "
+                       "Enable it via @BotFather /setinline.", me.username)
+
     await application.bot.set_my_commands([
         BotCommand('new', 'Start a new game'),
         BotCommand('join', 'Join the current game'),
