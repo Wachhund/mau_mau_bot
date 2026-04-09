@@ -20,7 +20,7 @@
 import logging
 from datetime import datetime
 
-from telegram import InlineKeyboardMarkup, \
+from telegram import BotCommand, InlineKeyboardMarkup, \
     InlineKeyboardButton, Update
 from telegram.constants import ParseMode
 from telegram.ext import InlineQueryHandler, ChosenInlineResultHandler, \
@@ -818,5 +818,29 @@ simple_commands.register()
 settings.register()
 application.add_handler(MessageHandler(filters.StatusUpdate.LEFT_CHAT_MEMBER, status_update))
 application.add_error_handler(error)
+
+
+async def post_init(application):
+    """Set bot commands on startup so Telegram clients show them"""
+    await application.bot.set_my_commands([
+        BotCommand('new', 'Start a new game'),
+        BotCommand('join', 'Join the current game'),
+        BotCommand('start', 'Start the game'),
+        BotCommand('leave', 'Leave the game you\'re in'),
+        BotCommand('close', 'Close the game lobby'),
+        BotCommand('open', 'Open the game lobby'),
+        BotCommand('kill', 'Terminate the game'),
+        BotCommand('kick', 'Kick players out of the game'),
+        BotCommand('skip', 'Skip the current player'),
+        BotCommand('notify_me', 'Get notified about new games'),
+        BotCommand('help', 'How to use this bot?'),
+        BotCommand('modes', 'Explanation of game modes'),
+        BotCommand('settings', 'Language and other settings'),
+        BotCommand('stats', 'Show statistics'),
+        BotCommand('source', 'See source information'),
+        BotCommand('news', 'All news about this bot'),
+    ])
+
+application.post_init = post_init
 
 start_bot(application)
