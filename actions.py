@@ -10,6 +10,7 @@ from telegram.ext import ContextTypes
 from apscheduler.jobstores.base import JobLookupError
 
 from config import TIME_REMOVAL_AFTER_SKIP, MIN_FAST_TURN_TIME
+from pony.orm import db_session
 from errors import DeckEmptyError, NotEnoughPlayersError
 from internationalization import __, _, set_locale_stack
 from shared_vars import gm

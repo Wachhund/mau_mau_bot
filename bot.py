@@ -334,7 +334,10 @@ async def kick_player(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def select_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler for callback queries to select the current game"""
 
-    chat_id = int(update.callback_query.data)
+    try:
+        chat_id = int(update.callback_query.data)
+    except (ValueError, TypeError):
+        return
     user_id = update.callback_query.from_user.id
     players = gm.userid_players[user_id]
     for player in players:
@@ -739,6 +742,8 @@ async def process_result(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif result_id.startswith('mode_'):
         # First 5 characters are 'mode_', the rest is the gamemode.
         mode = result_id[5:]
+        if mode not in ('classic', 'fast', 'wild', 'text'):
+            return
         game.set_mode(mode)
         logger.info("Gamemode changed to {mode}".format(mode = mode))
         await send_async(context.bot, chat.id, text=__("Gamemode changed to {mode}".format(mode = mode)),

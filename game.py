@@ -37,7 +37,6 @@ class Game(object):
     starter = None
     mode = DEFAULT_GAMEMODE
     job = None
-    owner = ADMIN_LIST
     open = OPEN_LOBBY
     translate = ENABLE_TRANSLATIONS
 
@@ -46,6 +45,7 @@ class Game(object):
         self.last_card = None
         self.lock = asyncio.Lock()
         self.thread_id = None
+        self.owner = list(ADMIN_LIST) if ADMIN_LIST else []
 
         self.deck = Deck()
 

@@ -41,9 +41,7 @@ class GameManager(object):
 
     def get_chat_lock(self, chat_id):
         """Returns the asyncio.Lock for a given chat, creating one if needed"""
-        if chat_id not in self.chat_locks:
-            self.chat_locks[chat_id] = asyncio.Lock()
-        return self.chat_locks[chat_id]
+        return self.chat_locks.setdefault(chat_id, asyncio.Lock())
 
     def new_game(self, chat):
         """
@@ -152,7 +150,7 @@ class GameManager(object):
 
         self.logger.info("Game in chat " + str(chat.id) + " ended")
         try:
-            asyncio.get_event_loop().create_task(send_promotion(chat, chance=0.15))
+            asyncio.get_running_loop().create_task(send_promotion(chat, chance=0.15))
         except RuntimeError:
             pass
 
