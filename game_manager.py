@@ -149,10 +149,6 @@ class GameManager(object):
         """
 
         self.logger.info("Game in chat " + str(chat.id) + " ended")
-        try:
-            asyncio.get_running_loop().create_task(send_promotion(chat, chance=0.15))
-        except RuntimeError:
-            pass
 
         # Find the correct game instance to end
         player = self.player_for_user_in_chat(user, chat)
@@ -161,6 +157,12 @@ class GameManager(object):
             raise NoGameInChatError
 
         game = player.game
+
+        try:
+            asyncio.get_running_loop().create_task(
+                send_promotion(chat, chance=0.15, message_thread_id=game.thread_id))
+        except RuntimeError:
+            pass
 
         # Clear game
         for player_in_game in game.players:

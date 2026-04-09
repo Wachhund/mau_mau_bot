@@ -90,6 +90,8 @@ async def send_async(bot, *args, **kwargs):
     """Send a message asynchronously"""
     if 'read_timeout' not in kwargs:
         kwargs['read_timeout'] = TIMEOUT
+    if 'write_timeout' not in kwargs:
+        kwargs['write_timeout'] = TIMEOUT
 
     try:
         await bot.send_message(*args, **kwargs)
@@ -101,6 +103,8 @@ async def answer_async(bot, *args, **kwargs):
     """Answer an inline query asynchronously"""
     if 'read_timeout' not in kwargs:
         kwargs['read_timeout'] = TIMEOUT
+    if 'write_timeout' not in kwargs:
+        kwargs['write_timeout'] = TIMEOUT
 
     try:
         await bot.answer_inline_query(*args, **kwargs)

@@ -74,7 +74,8 @@ async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         disable_web_page_preview=True,
         message_thread_id=update.message.message_thread_id,
     )
-    await send_promotion(update.effective_chat)
+    await send_promotion(update.effective_chat,
+                         message_thread_id=update.message.message_thread_id)
 
 @user_locale
 async def modes(update: Update, context: ContextTypes.DEFAULT_TYPE):

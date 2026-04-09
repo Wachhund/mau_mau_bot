@@ -85,22 +85,26 @@ async def new_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await help_handler(update, context)
 
     else:
+        # Collect reminders before locking (send after lock release)
+        remind_users = None
+        if update.message.chat_id in gm.remind_dict:
+            remind_users = list(gm.remind_dict[update.message.chat_id])
+            del gm.remind_dict[update.message.chat_id]
+
         chat_lock = gm.get_chat_lock(chat_id)
         async with chat_lock:
-            if update.message.chat_id in gm.remind_dict:
-                for user in gm.remind_dict[update.message.chat_id]:
-                    await send_async(context.bot,
-                               user,
-                               text=_("A new game has been started in {title}").format(
-                                    title=update.message.chat.title))
-
-                del gm.remind_dict[update.message.chat_id]
-
             game = gm.new_game(update.message.chat)
             game.starter = update.message.from_user
             game.owner.append(update.message.from_user.id)
             game.mode = DEFAULT_GAMEMODE
             game.thread_id = thread_id
+
+        if remind_users:
+            for user in remind_users:
+                await send_async(context.bot,
+                           user,
+                           text=_("A new game has been started in {title}").format(
+                                title=update.message.chat.title))
 
         await send_async(context.bot, chat_id,
                    text=_("Created a new game! Join the game with /join "
@@ -806,9 +810,7 @@ async def process_result(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def reset_waiting_time(bot, player):
-    """Resets waiting time for a player and sends a notice to the group"""
-    chat = player.game.chat
-
+    """Resets waiting time for a player"""
     if player.waiting_time < WAITING_TIME:
         player.waiting_time = WAITING_TIME
 

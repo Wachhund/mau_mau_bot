@@ -21,10 +21,11 @@ def get_promotion():
     """ Get a random promotion message """
     return random.choices(list(PROMOTIONS.keys()), weights=list(PROMOTIONS.values()))[0]
 
-async def send_promotion(chat, chance=1.0):
+async def send_promotion(chat, chance=1.0, message_thread_id=None):
     """ (Maybe) send a promotion message """
     if random.random() <= chance:
         try:
-            await chat.send_message(get_promotion(), parse_mode='HTML')
+            await chat.send_message(get_promotion(), parse_mode='HTML',
+                                    message_thread_id=message_thread_id)
         except Exception as e:
             logger.exception(e)
