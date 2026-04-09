@@ -145,13 +145,16 @@ class GameManager(object):
                 del self.userid_current[user.id]
                 del self.userid_players[user.id]
 
-    async def end_game(self, chat, user):
+    def end_game(self, chat, user):
         """
         End a game
         """
 
         self.logger.info("Game in chat " + str(chat.id) + " ended")
-        await send_promotion(chat, chance=0.15)
+        try:
+            asyncio.get_event_loop().create_task(send_promotion(chat, chance=0.15))
+        except RuntimeError:
+            pass
 
         # Find the correct game instance to end
         player = self.player_for_user_in_chat(user, chat)

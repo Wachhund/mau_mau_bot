@@ -88,8 +88,8 @@ async def error(update: object, context: ContextTypes.DEFAULT_TYPE):
 
 async def send_async(bot, *args, **kwargs):
     """Send a message asynchronously"""
-    if 'timeout' not in kwargs:
-        kwargs['timeout'] = TIMEOUT
+    if 'read_timeout' not in kwargs:
+        kwargs['read_timeout'] = TIMEOUT
 
     try:
         await bot.send_message(*args, **kwargs)
@@ -99,8 +99,8 @@ async def send_async(bot, *args, **kwargs):
 
 async def answer_async(bot, *args, **kwargs):
     """Answer an inline query asynchronously"""
-    if 'timeout' not in kwargs:
-        kwargs['timeout'] = TIMEOUT
+    if 'read_timeout' not in kwargs:
+        kwargs['read_timeout'] = TIMEOUT
 
     try:
         await bot.answer_inline_query(*args, **kwargs)

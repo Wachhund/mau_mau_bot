@@ -82,7 +82,7 @@ async def do_skip(bot, player, job_queue=None):
                                "The game ended.", multi=game.translate)
                        .format(name=display_name(skipped_player.user)))
 
-            await gm.end_game(chat, skipped_player.user)
+            gm.end_game(chat, skipped_player.user)
 
 
 
@@ -94,12 +94,13 @@ async def do_play_card(bot, player, result_id):
     chat = game.chat
     user = player.user
 
-    us = UserSetting.get(id=user.id)
-    if not us:
-        us = UserSetting(id=user.id)
+    with db_session:
+        us = UserSetting.get(id=user.id)
+        if not us:
+            us = UserSetting(id=user.id)
 
-    if us.stats:
-        us.cards_played += 1
+        if us.stats:
+            us.cards_played += 1
 
     if game.choosing_color:
         await send_async(bot, chat.id, text=__("Please choose a color", multi=game.translate))
@@ -112,11 +113,13 @@ async def do_play_card(bot, player, result_id):
                    text=__("{name} won!", multi=game.translate)
                    .format(name=user.first_name))
 
-        if us.stats:
-            us.games_played += 1
+        with db_session:
+            us = UserSetting.get(id=user.id)
+            if us and us.stats:
+                us.games_played += 1
 
-            if game.players_won == 0:
-                us.first_places += 1
+                if game.players_won == 0:
+                    us.first_places += 1
 
         game.players_won += 1
 
@@ -126,11 +129,12 @@ async def do_play_card(bot, player, result_id):
             await send_async(bot, chat.id,
                        text=__("Game ended!", multi=game.translate))
 
-            us2 = UserSetting.get(id=game.current_player.user.id)
-            if us2 and us2.stats:
-                us2.games_played += 1
+            with db_session:
+                us2 = UserSetting.get(id=game.current_player.user.id)
+                if us2 and us2.stats:
+                    us2.games_played += 1
 
-            await gm.end_game(chat, user)
+            gm.end_game(chat, user)
 
 
 async def do_draw(bot, player):

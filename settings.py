@@ -21,6 +21,7 @@
 from telegram import ReplyKeyboardMarkup, Update
 from telegram.ext import CommandHandler, filters, MessageHandler, ContextTypes
 
+from pony.orm import db_session
 from utils import send_async
 from user_setting import UserSetting
 from shared_vars import application
@@ -38,15 +39,16 @@ async def show_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
                           "the bot."))
         return
 
-    us = UserSetting.get(id=update.message.from_user.id)
+    with db_session:
+        us = UserSetting.get(id=update.message.from_user.id)
 
-    if not us:
-        us = UserSetting(id=update.message.from_user.id)
+        if not us:
+            us = UserSetting(id=update.message.from_user.id)
 
-    if not us.stats:
-        stats = '📊' + ' ' + _("Enable statistics")
-    else:
-        stats = '❌' + ' ' + _("Delete all statistics")
+        if not us.stats:
+            stats = '📊' + ' ' + _("Enable statistics")
+        else:
+            stats = '❌' + ' ' + _("Delete all statistics")
 
     kb = [[stats], ['🌍' + ' ' + _("Language")]]
     await send_async(context.bot, chat.id, text='🔧' + ' ' + _("Settings"),
@@ -61,8 +63,9 @@ async def kb_select(update: Update, context: ContextTypes.DEFAULT_TYPE):
     option = context.match[1]
 
     if option == '📊':
-        us = UserSetting.get(id=user.id)
-        us.stats = True
+        with db_session:
+            us = UserSetting.get(id=user.id)
+            us.stats = True
         await send_async(context.bot, chat.id, text=_("Enabled statistics!"))
 
     elif option == '🌍':
@@ -74,11 +77,12 @@ async def kb_select(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                                     one_time_keyboard=True))
 
     elif option == '❌':
-        us = UserSetting.get(id=user.id)
-        us.stats = False
-        us.first_places = 0
-        us.games_played = 0
-        us.cards_played = 0
+        with db_session:
+            us = UserSetting.get(id=user.id)
+            us.stats = False
+            us.first_places = 0
+            us.games_played = 0
+            us.cards_played = 0
         await send_async(context.bot, chat.id, text=_("Deleted and disabled statistics!"))
 
 
@@ -89,8 +93,9 @@ async def locale_select(update: Update, context: ContextTypes.DEFAULT_TYPE):
     option = context.match[1]
 
     if option in available_locales:
-        us = UserSetting.get(id=user.id)
-        us.lang = option
+        with db_session:
+            us = UserSetting.get(id=user.id)
+            us.lang = option
         _.push(option)
         await send_async(context.bot, chat.id, text=_("Set locale!"))
         _.pop()

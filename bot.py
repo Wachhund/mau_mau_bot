@@ -119,7 +119,7 @@ async def kill_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat_lock = gm.get_chat_lock(chat.id)
         async with chat_lock:
             try:
-                await gm.end_game(chat, user)
+                gm.end_game(chat, user)
                 await send_async(context.bot, chat.id, text=__("Game ended!", multi=game.translate))
 
             except NoGameInChatError:
@@ -206,7 +206,7 @@ async def leave_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         except NotEnoughPlayersError:
-            await gm.end_game(chat, user)
+            gm.end_game(chat, user)
             await send_async(context.bot, chat.id, text=__("Game ended!", multi=game.translate))
             return
 
@@ -268,7 +268,7 @@ async def kick_player(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     return
 
                 except NotEnoughPlayersError:
-                    await gm.end_game(chat, user)
+                    gm.end_game(chat, user)
                     await send_async(context.bot, chat.id,
                                     text=_("{0} was kicked by {1}".format(display_name(kicked), display_name(user))))
                     await send_async(context.bot, chat.id, text=__("Game ended!", multi=game.translate))
@@ -340,14 +340,18 @@ async def status_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         chat_lock = gm.get_chat_lock(chat.id)
         async with chat_lock:
+            player = gm.player_for_user_in_chat(user, chat)
+            if not player:
+                return
+
+            game = player.game
+
             try:
                 gm.leave_game(user, chat)
-                game = gm.player_for_user_in_chat(user, chat).game
-
             except NoGameInChatError:
                 return
             except NotEnoughPlayersError:
-                await gm.end_game(chat, user)
+                gm.end_game(chat, user)
                 await send_async(context.bot, chat.id, text=__("Game ended!",
                                                  multi=game.translate))
                 return
@@ -400,12 +404,12 @@ async def start_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             await context.bot.send_sticker(chat.id,
                             sticker=c.STICKERS[str(game.last_card)],
-                            read_timeout=TIMEOUT)
+                            read_timeout=TIMEOUT, write_timeout=TIMEOUT)
 
             await context.bot.send_message(chat.id,
                             text=first_message,
                             reply_markup=InlineKeyboardMarkup(choice),
-                            read_timeout=TIMEOUT)
+                            read_timeout=TIMEOUT, write_timeout=TIMEOUT)
 
             start_player_countdown(context.bot, game, context.job_queue)
 
@@ -672,7 +676,6 @@ async def process_result(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.debug("Selected result: " + result_id)
 
     result_id, anti_cheat = result_id.split(':')
-    last_anti_cheat = player.anti_cheat
 
     if result_id in ('hand', 'gameinfo', 'nogame'):
         return
@@ -685,13 +688,14 @@ async def process_result(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     elif len(result_id) == 36:  # UUID result
         return
-    elif int(anti_cheat) != last_anti_cheat:
-        await send_async(context.bot, chat.id,
-                   text=__("Cheat attempt by {name}", multi=game.translate)
-                   .format(name=display_name(player.user)))
-        return
 
     async with game.lock:
+        if int(anti_cheat) != player.anti_cheat:
+            await send_async(context.bot, chat.id,
+                       text=__("Cheat attempt by {name}", multi=game.translate)
+                       .format(name=display_name(player.user)))
+            return
+
         player.anti_cheat += 1
 
         if result_id == 'call_bluff':

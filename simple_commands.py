@@ -21,6 +21,7 @@ from telegram import Update
 from telegram.constants import ParseMode
 from telegram.ext import CommandHandler, ContextTypes
 
+from pony.orm import db_session
 from user_setting import UserSetting
 from utils import send_async
 from shared_vars import application
@@ -117,30 +118,39 @@ async def news(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @user_locale
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user
-    us = UserSetting.get(id=user.id)
-    if not us or not us.stats:
+    with db_session:
+        us = UserSetting.get(id=user.id)
+        if not us or not us.stats:
+            no_stats = True
+        else:
+            no_stats = False
+            games_played = us.games_played
+            first_places = us.first_places
+            cards_played = us.cards_played
+
+    if no_stats:
         await send_async(context.bot, update.message.chat_id,
                    text=_("You did not enable statistics. Use /settings in "
                           "a private chat with the bot to enable them."))
     else:
         stats_text = list()
 
-        n = us.games_played
+        n = games_played
         stats_text.append(
             _("{number} game played",
               "{number} games played",
               n).format(number=n)
         )
 
-        n = us.first_places
-        m = round((us.first_places / us.games_played) * 100) if us.games_played else 0
+        n = first_places
+        m = round((first_places / games_played) * 100) if games_played else 0
         stats_text.append(
             _("{number} first place ({percent}%)",
               "{number} first places ({percent}%)",
               n).format(number=n, percent=m)
         )
 
-        n = us.cards_played
+        n = cards_played
         stats_text.append(
             _("{number} card played",
               "{number} cards played",

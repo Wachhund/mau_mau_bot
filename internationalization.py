@@ -125,9 +125,11 @@ def user_locale(func):
         else:
             _.push('en_US')
 
-        result = await func(update, context, *pargs, **kwargs)
-        _.pop()
-        return result
+        try:
+            result = await func(update, context, *pargs, **kwargs)
+            return result
+        finally:
+            _.pop()
     return wrapped
 
 
@@ -154,12 +156,12 @@ def game_locales(func):
                 _.push(loc)
                 locales.append(loc)
 
-        result = await func(update, context, *pargs, **kwargs)
-
-        while _.code:
-            _.pop()
-
-        return result
+        try:
+            result = await func(update, context, *pargs, **kwargs)
+            return result
+        finally:
+            while _.code:
+                _.pop()
     return wrapped
 
 

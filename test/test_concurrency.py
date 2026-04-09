@@ -41,8 +41,6 @@ class TestGameLock:
         """Two concurrent turn() calls should advance by exactly 2 positions"""
         initial_player = self.game.current_player
 
-        barrier = asyncio.Event()
-
         async def turn_with_lock(ready_event):
             ready_event.set()
             async with self.game.lock:
