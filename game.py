@@ -45,6 +45,7 @@ class Game(object):
         self.chat = chat
         self.last_card = None
         self.lock = asyncio.Lock()
+        self.thread_id = None
 
         self.deck = Deck()
 
