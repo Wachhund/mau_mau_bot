@@ -36,3 +36,8 @@ class NotEnoughPlayersError(Exception):
 
 class DeckEmptyError(Exception):
     pass
+
+
+class GameAlreadyRunningError(Exception):
+    """Raised when /new is invoked in a (chat, topic) that already hosts a game."""
+    pass

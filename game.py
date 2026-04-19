@@ -18,8 +18,8 @@
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 
-import asyncio
 import logging
+import uuid
 from config import ADMIN_LIST, OPEN_LOBBY, DEFAULT_GAMEMODE, ENABLE_TRANSLATIONS
 from datetime import datetime
 
@@ -42,8 +42,8 @@ class Game(object):
 
     def __init__(self, chat):
         self.chat = chat
+        self.id = uuid.uuid4().hex[:12]
         self.last_card = None
-        self.lock = asyncio.Lock()
         self.thread_id = None
         self.owner = list(ADMIN_LIST) if ADMIN_LIST else []
 

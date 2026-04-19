@@ -11,7 +11,8 @@ Flat structure — all Python source files in the project root. No packages.
 | Layer | Files |
 |-------|-------|
 | Game domain | `game.py`, `player.py`, `card.py`, `deck.py`, `errors.py` |
-| State management | `game_manager.py`, `shared_vars.py` |
+| State management | `game_manager.py`, `shared_vars.py`, `uno_update_processor.py` |
+| Result ID encoding | `result_id.py`, `result_id_resolver.py` |
 | Bot integration | `bot.py`, `actions.py`, `results.py`, `settings.py`, `simple_commands.py` |
 | Cross-cutting | `internationalization.py`, `utils.py`, `config.py`, `database.py`, `user_setting.py`, `promotions.py` |
 
@@ -36,15 +37,18 @@ with db_session:
     await send_async(bot, chat_id, text=us.lang)  # BAD: await inside session
 ```
 
-### Concurrency Model
-`concurrent_updates=True` is enabled. Two locking levels protect shared state:
+### Concurrency Model (UNO-12)
+Locking is **centralised** in `UnoUpdateProcessor` (subclass of `telegram.ext.BaseUpdateProcessor` in `uno_update_processor.py`). It serialises updates per `(chat_id, thread_id)` via an internal lock dict. Updates without a derivable chat context (plain `InlineQuery`, polls) run in parallel.
 
-- **`game.lock`** (`asyncio.Lock` per Game instance) — must be held for all game state mutations in `process_result`, `skip_player`, `skip_job`
-- **`gm.get_chat_lock(chat_id)`** (`asyncio.Lock` per chat) — must be held for GameManager operations (`new_game`, `join_game`, `leave_game`, `end_game`, `kick`)
+**Handlers must not acquire their own locks.** Do NOT add `async with chat_lock` / `async with game.lock` patterns — they were removed in UNO-12. A single game per `(chat_id, thread_id)` is guaranteed, so the update-level lock covers all handler state mutations.
 
-Lock ordering: always chat lock first, then game lock. Never reversed.
+Functions in `actions.py` (`do_skip`, `do_play_card`, `do_draw`, `do_call_bluff`) run inside the processor lock implicitly; no extra lock is needed.
 
-Functions in `actions.py` (`do_skip`, `do_play_card`, `do_draw`, `do_call_bluff`) expect the caller to already hold `game.lock`.
+### Singleton Games
+`GameManager.chatid_games` is keyed by `(chat_id, thread_id)` and holds **at most one** active `Game` per key. `GameManager.new_game(chat, thread_id=...)` raises `GameAlreadyRunningError` when the topic already has a game with joined players. Use `gm.game_for_chat_topic(chat_id, thread_id)` or `gm.game_by_id(game_id)` for lookups — never index by `chat.id` alone.
+
+### Inline Result IDs
+Every result ID produced in `reply_to_query` is re-encoded via `encode_results_list` (in `result_id.py`) as `<game_id>:<base_id>:<anti_cheat>`. Non-game sentinels (`nogame`, `hand`, `gameinfo`, `mode_*`) get the pseudo game-id `'none'`. `process_result` decodes via `decode_result_id` and resolves game/player via `resolve_result` (`result_id_resolver.py`); dead-game cases send a user-friendly DM.
 
 ### Locale Isolation
 `internationalization.py` uses `contextvars.ContextVar` for per-task locale stacks. The `@user_locale` and `@game_locales` decorators use `try/finally` to ensure cleanup. Job queue callbacks must explicitly set locales via `set_locale_stack()`.
@@ -53,17 +57,19 @@ Functions in `actions.py` (`do_skip`, `do_play_card`, `do_draw`, `do_call_bluff`
 Use `send_async()` from `utils.py` for all bot messages — it handles timeouts and error logging. Always pass `message_thread_id=game.thread_id` (or `update.message.message_thread_id` when no game context) to support forum topics.
 
 ### Game.owner
-`Game.owner` is an instance-level `list` initialized in `__init__`, NOT a class attribute. Do not move it to class level — mutable class attributes are shared across instances.
+`Game.owner` is an instance-level `list` initialised in `__init__`, NOT a class attribute. Do not move it to class level — mutable class attributes are shared across instances.
 
 ## Common Review Pitfalls
 
 - Missing `from pony.orm import db_session` when adding `with db_session:` blocks
 - Missing `message_thread_id` parameter on new `send_async` calls
-- Using `game.lock` without `async with` (must be `async with game.lock:`)
-- Accessing game state after releasing the lock (capture values inside the lock)
+- Re-introducing per-handler `async with chat_lock` / `async with game.lock` blocks — locking is owned by `UnoUpdateProcessor`
+- Indexing `GameManager.chatid_games` by `chat.id` alone — the key is `(chat.id, thread_id)`
+- Hand-rolling inline-result IDs — always go through `encode_results_list` / `decode_result_id`
+- Accessing game state across `await` boundaries in ways that assume old locking guarantees (e.g. capturing before dispatch) — still wise, even though the processor serialises per topic
 - Using `asyncio.get_event_loop()` (deprecated) — use `asyncio.get_running_loop()`
 - Forgetting `is_bot=False` in test `User()` constructors (required in v22)
 
 ## Testing
 
-`python -m pytest test/` — 24 tests covering game logic, concurrency locks, and locale isolation. Tests do NOT import `shared_vars.py` (which requires a valid bot token for `Application.builder()`).
+`python -m pytest test/` — covers game logic, UpdateProcessor serialisation, GameManager singleton enforcement, result-ID encoding/decoding, resolver dead-game cases, and locale isolation. Tests do NOT import `shared_vars.py` (which requires a valid bot token for `Application.builder()`).

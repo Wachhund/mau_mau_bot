@@ -23,54 +23,64 @@ import logging
 
 from game import Game
 from player import Player
-from errors import (AlreadyJoinedError, LobbyClosedError, NoGameInChatError,
-                    NotEnoughPlayersError)
+from errors import (AlreadyJoinedError, GameAlreadyRunningError,
+                    LobbyClosedError, NoGameInChatError, NotEnoughPlayersError)
 from promotions import send_promotion
 
+
 class GameManager(object):
-    """ Manages all running games by using a confusing amount of dicts """
+    """Owns all running games — keyed by ``(chat_id, thread_id)``.
+
+    Each ``(chat_id, thread_id)`` may host **at most one** active game.
+    Concurrency is handled by :class:`uno_update_processor.UnoUpdateProcessor`,
+    not in this manager. ``update_processor`` is set from ``shared_vars`` after
+    construction so that ``end_game`` can release the matching lock.
+    """
 
     def __init__(self):
-        self.chatid_games = dict()
+        self.chatid_games = dict()        # (chat_id, thread_id) -> Game
+        self.games_by_id = dict()         # game.id -> Game
         self.userid_players = dict()
         self.userid_current = dict()
         self.remind_dict = dict()
-        self.chat_locks = dict()
+        self.update_processor = None      # set by shared_vars after wiring
 
         self.logger = logging.getLogger(__name__)
 
-    def get_chat_lock(self, chat_id):
-        """Returns the asyncio.Lock for a given chat, creating one if needed"""
-        return self.chat_locks.setdefault(chat_id, asyncio.Lock())
-
-    def new_game(self, chat):
-        """
-        Create a new game in this chat
-        """
+    def new_game(self, chat, thread_id=None):
+        """Create a new game in this chat/topic. Singleton per (chat, topic)."""
         chat_id = chat.id
+        key = (chat_id, thread_id)
 
-        self.logger.debug("Creating new game in chat " + str(chat_id))
+        existing = self.chatid_games.get(key)
+        if existing is not None and existing.players:
+            raise GameAlreadyRunningError()
+
+        if existing is not None:
+            # An empty stale lobby — drop it before replacing.
+            self._forget_game(existing)
+
+        self.logger.debug("Creating new game in chat %s topic %s",
+                          chat_id, thread_id)
         game = Game(chat)
+        game.thread_id = thread_id
 
-        if chat_id not in self.chatid_games:
-            self.chatid_games[chat_id] = list()
-
-        # remove old games
-        for g in list(self.chatid_games[chat_id]):
-            if not g.players:
-                self.chatid_games[chat_id].remove(g)
-
-        self.chatid_games[chat_id].append(game)
+        self.chatid_games[key] = game
+        self.games_by_id[game.id] = game
         return game
 
-    def join_game(self, user, chat):
-        """ Create a player from the Telegram user and add it to the game """
-        self.logger.info("Joining game with id " + str(chat.id))
+    def join_game(self, user, chat, thread_id=None):
+        """Create a player from the Telegram user and add it to the game."""
+        self.logger.info("Joining game with chat id " + str(chat.id))
 
-        try:
-            game = self.chatid_games[chat.id][-1]
-        except (KeyError, IndexError):
-            raise NoGameInChatError()
+        game = self.game_for_chat_topic(chat.id, thread_id)
+        if game is None:
+            # Backwards-friendly: if no exact (chat, topic) game exists but the
+            # caller did not specify a thread, fall back to any game in the chat.
+            if thread_id is None:
+                game = self._any_game_in_chat(chat.id)
+            if game is None:
+                raise NoGameInChatError()
 
         if not game.open:
             raise LobbyClosedError()
@@ -80,7 +90,7 @@ class GameManager(object):
 
         players = self.userid_players[user.id]
 
-        # Don not re-add a player and remove the player from previous games in
+        # Don't re-add a player and remove the player from previous games in
         # this chat, if he is in one of them
         for player in players:
             if player in game.players:
@@ -106,19 +116,17 @@ class GameManager(object):
         self.userid_current[user.id] = player
 
     def leave_game(self, user, chat):
-        """ Remove a player from its current game """
+        """Remove a player from its current game."""
 
         player = self.player_for_user_in_chat(user, chat)
         players = self.userid_players.get(user.id, list())
 
         if not player:
-            games = self.chatid_games[chat.id]
-            for g in games:
-                for p in g.players:
+            for game in self._games_in_chat(chat.id):
+                for p in game.players:
                     if p.user.id == user.id:
-                        if p == g.current_player:
-                            g.turn()
-
+                        if p == game.current_player:
+                            game.turn()
                         p.leave()
                         return
 
@@ -144,15 +152,11 @@ class GameManager(object):
                 del self.userid_players[user.id]
 
     def end_game(self, chat, user):
-        """
-        End a game
-        """
+        """End a game."""
 
         self.logger.info("Game in chat " + str(chat.id) + " ended")
 
-        # Find the correct game instance to end
         player = self.player_for_user_in_chat(user, chat)
-
         if not player:
             raise NoGameInChatError
 
@@ -164,7 +168,7 @@ class GameManager(object):
         except RuntimeError:
             pass
 
-        # Clear game
+        # Clear all players from the userid maps
         for player_in_game in game.players:
             this_users_players = \
                 self.userid_players.get(player_in_game.user.id, list())
@@ -175,24 +179,20 @@ class GameManager(object):
                 pass
 
             if this_users_players:
-                try:
-                    self.userid_current[player_in_game.user.id] = this_users_players[0]
-                except KeyError:
-                    pass
+                self.userid_current[player_in_game.user.id] = this_users_players[0]
             else:
-                try:
-                    del self.userid_players[player_in_game.user.id]
-                except KeyError:
-                    pass
+                self.userid_players.pop(player_in_game.user.id, None)
+                self.userid_current.pop(player_in_game.user.id, None)
 
-                try:
-                    del self.userid_current[player_in_game.user.id]
-                except KeyError:
-                    pass
+        self._forget_game(game)
 
-        self.chatid_games[chat.id].remove(game)
-        if not self.chatid_games[chat.id]:
-            del self.chatid_games[chat.id]
+    def game_for_chat_topic(self, chat_id, thread_id):
+        """Return the active Game for ``(chat_id, thread_id)`` or ``None``."""
+        return self.chatid_games.get((chat_id, thread_id))
+
+    def game_by_id(self, game_id):
+        """Return the active Game with the given ``game.id`` or ``None``."""
+        return self.games_by_id.get(game_id)
 
     def player_for_user_in_chat(self, user, chat):
         players = self.userid_players.get(user.id, list())
@@ -200,3 +200,29 @@ class GameManager(object):
             if player.game.chat.id == chat.id:
                 return player
         return None
+
+    # -- internal helpers -------------------------------------------------
+
+    def _games_in_chat(self, chat_id):
+        """Yield every active game whose chat matches ``chat_id``."""
+        for (cid, _tid), game in self.chatid_games.items():
+            if cid == chat_id:
+                yield game
+
+    def _any_game_in_chat(self, chat_id):
+        for game in self._games_in_chat(chat_id):
+            return game
+        return None
+
+    def _forget_game(self, game):
+        """Drop a game from all in-memory indexes and release its lock."""
+        key = (game.chat.id, game.thread_id)
+        self.chatid_games.pop(key, None)
+        self.games_by_id.pop(game.id, None)
+
+        processor = self.update_processor
+        if processor is not None:
+            try:
+                processor.release_key(key)
+            except Exception:  # pragma: no cover - defensive
+                self.logger.exception("Failed to release processor lock for %s", key)

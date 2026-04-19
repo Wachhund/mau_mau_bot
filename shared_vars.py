@@ -19,15 +19,34 @@
 
 
 from config import TOKEN
-import logging
 import os
 from telegram.ext import Application
 
-from game_manager import GameManager
 from database import db
+from game_manager import GameManager
+from uno_update_processor import UnoUpdateProcessor
 
 db.bind('sqlite', os.getenv('UNO_DB', 'uno.sqlite3'), create_db=True)
 db.generate_mapping(create_tables=True)
 
 gm = GameManager()
-application = Application.builder().token(TOKEN).concurrent_updates(True).build()
+
+
+def _resolve_game_id(game_id):
+    """Map a Game.id back to (chat_id, thread_id) for UpdateProcessor routing."""
+    game = gm.game_by_id(game_id)
+    if game is None:
+        return None
+    return (game.chat.id, game.thread_id)
+
+
+update_processor = UnoUpdateProcessor(
+    max_concurrent_updates=256,
+    game_resolver=_resolve_game_id,
+)
+gm.update_processor = update_processor
+
+application = (Application.builder()
+               .token(TOKEN)
+               .concurrent_updates(update_processor)
+               .build())

@@ -30,7 +30,8 @@ class Countdown(object):
         self.locales = locales or []
 
 
-# Caller must hold the game lock
+# Per-(chat, thread) serialization is owned by UnoUpdateProcessor; callers
+# do not need to hold any lock.
 async def do_skip(bot, player, job_queue=None):
     game = player.game
     chat = game.chat
@@ -236,6 +237,8 @@ async def skip_job(context: ContextTypes.DEFAULT_TYPE):
     if game_is_running(game):
         set_locale_stack(context.job.data.locales)
         job_queue = context.job.data.job_queue
-        async with game.lock:
-            if game_is_running(game):
-                await do_skip(context.bot, player, job_queue)
+        # Job-queue runs outside the UpdateProcessor — no per-(chat, thread)
+        # lock is held here. The double game_is_running check still guards
+        # against the race where the player has already finished their turn.
+        if game_is_running(game):
+            await do_skip(context.bot, player, job_queue)
