@@ -46,7 +46,12 @@ update_processor = UnoUpdateProcessor(
 )
 gm.update_processor = update_processor
 
+_TIMEOUT = 2.5  # aggressive default, matches pre-v22 behaviour
+
 application = (Application.builder()
                .token(TOKEN)
                .concurrent_updates(update_processor)
+               .read_timeout(_TIMEOUT)
+               .write_timeout(_TIMEOUT)
+               .connect_timeout(_TIMEOUT)
                .build())

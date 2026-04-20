@@ -44,7 +44,7 @@ from shared_vars import gm, application
 from simple_commands import help_handler
 from start_bot import start_bot
 from utils import display_name
-from utils import send_async, answer_async, error, TIMEOUT, user_is_creator_or_admin, user_is_creator, game_is_running
+from utils import send_async, answer_async, error, user_is_creator_or_admin, user_is_creator, game_is_running
 
 
 logging.basicConfig(
@@ -470,13 +470,11 @@ async def start_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             await context.bot.send_sticker(chat.id,
                             sticker=c.STICKERS[str(game.last_card)],
-                            read_timeout=TIMEOUT, write_timeout=TIMEOUT,
                             message_thread_id=game.thread_id)
 
             await context.bot.send_message(chat.id,
                             text=first_message,
                             reply_markup=InlineKeyboardMarkup(choice),
-                            read_timeout=TIMEOUT, write_timeout=TIMEOUT,
                             message_thread_id=game.thread_id)
 
             start_player_countdown(context.bot, game, context.job_queue)
@@ -829,17 +827,17 @@ async def process_result(update: Update, context: ContextTypes.DEFAULT_TYPE):
     player.anti_cheat += 1
 
     if base_id == 'call_bluff':
-        reset_waiting_time(context.bot, player)
+        await reset_waiting_time(context.bot, player)
         await do_call_bluff(context.bot, player)
     elif base_id == 'draw':
-        reset_waiting_time(context.bot, player)
+        await reset_waiting_time(context.bot, player)
         await do_draw(context.bot, player)
     elif base_id == 'pass':
         game.turn()
     elif base_id in c.COLORS:
         game.choose_color(base_id)
     else:
-        reset_waiting_time(context.bot, player)
+        await reset_waiting_time(context.bot, player)
         await do_play_card(context.bot, player, base_id)
 
     if game_is_running(game):
@@ -854,10 +852,18 @@ async def process_result(update: Update, context: ContextTypes.DEFAULT_TYPE):
         start_player_countdown(context.bot, game, context.job_queue)
 
 
-def reset_waiting_time(bot, player):
-    """Resets waiting time for a player"""
+async def reset_waiting_time(bot, player):
+    """Resets waiting time for a player and notifies the chat."""
     if player.waiting_time < WAITING_TIME:
         player.waiting_time = WAITING_TIME
+        game = player.game
+        await send_async(bot, game.chat.id,
+                         text=__("Waiting time for {name} has been reset to "
+                                 "{time} seconds",
+                                 multi=game.translate)
+                         .format(name=display_name(player.user),
+                                 time=WAITING_TIME),
+                         message_thread_id=game.thread_id)
 
 
 # Add all handlers to the application and run the bot

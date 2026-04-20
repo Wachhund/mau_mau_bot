@@ -29,8 +29,6 @@ from shared_vars import gm
 
 logger = logging.getLogger(__name__)
 
-TIMEOUT = 2.5
-
 _admin_cache = {}
 _admin_cache_timeout = 60 * 60
 
@@ -87,12 +85,9 @@ async def error(update: object, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def send_async(bot, *args, **kwargs):
-    """Send a message asynchronously"""
-    if 'read_timeout' not in kwargs:
-        kwargs['read_timeout'] = TIMEOUT
-    if 'write_timeout' not in kwargs:
-        kwargs['write_timeout'] = TIMEOUT
-
+    """Send a message, swallowing exceptions so a failed send does not crash
+    the calling handler. Network timeouts are configured centrally on the
+    Application builder (see ``shared_vars.py``)."""
     try:
         await bot.send_message(*args, **kwargs)
     except Exception as e:
@@ -100,12 +95,8 @@ async def send_async(bot, *args, **kwargs):
 
 
 async def answer_async(bot, *args, **kwargs):
-    """Answer an inline query asynchronously"""
-    if 'read_timeout' not in kwargs:
-        kwargs['read_timeout'] = TIMEOUT
-    if 'write_timeout' not in kwargs:
-        kwargs['write_timeout'] = TIMEOUT
-
+    """Answer an inline query, swallowing exceptions for the same reason as
+    :func:`send_async`."""
     try:
         await bot.answer_inline_query(*args, **kwargs)
     except Exception as e:
