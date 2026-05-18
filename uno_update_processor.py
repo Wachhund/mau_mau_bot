@@ -51,12 +51,22 @@ class UnoUpdateProcessor(BaseUpdateProcessor):
         self._locks: dict[GameKey, asyncio.Lock] = {}
         self._game_resolver = game_resolver
 
-    def _lock_for_key(self, key: GameKey) -> asyncio.Lock:
+    def lock_for_key(self, key: GameKey) -> asyncio.Lock:
+        """Return the ``asyncio.Lock`` for ``key``, creating one if needed.
+
+        Public so that background tasks (e.g. ``actions.skip_job`` fired by
+        the job queue) can serialise themselves against concurrent inline
+        updates targeting the same game.
+        """
         lock = self._locks.get(key)
         if lock is None:
             lock = asyncio.Lock()
             self._locks[key] = lock
         return lock
+
+    # Internal alias kept so existing call sites in ``do_process_update`` and
+    # the legacy test suite don't need to learn the new name.
+    _lock_for_key = lock_for_key
 
     def release_key(self, key: GameKey) -> None:
         """Drop the lock for a key once its game has ended."""

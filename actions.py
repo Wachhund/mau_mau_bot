@@ -232,13 +232,25 @@ def start_player_countdown(bot, game, job_queue):
 
 
 async def skip_job(context: ContextTypes.DEFAULT_TYPE):
+    """Job-queue callback fired when a player's turn timer elapses.
+
+    Runs outside the :class:`UnoUpdateProcessor`'s normal dispatch path, so
+    we have to acquire the same per-``(chat, thread_id)`` lock manually to
+    avoid racing with an inline update that the user might still send right
+    before the timer fires.
+    """
     player = context.job.data.player
     game = player.game
-    if game_is_running(game):
-        set_locale_stack(context.job.data.locales)
-        job_queue = context.job.data.job_queue
-        # Job-queue runs outside the UpdateProcessor — no per-(chat, thread)
-        # lock is held here. The double game_is_running check still guards
-        # against the race where the player has already finished their turn.
+    if not game_is_running(game):
+        return
+
+    set_locale_stack(context.job.data.locales)
+    job_queue = context.job.data.job_queue
+
+    # Late-import to avoid circular imports at module load.
+    from shared_vars import update_processor
+    key = (game.chat.id, game.thread_id)
+    async with update_processor.lock_for_key(key):
+        # Re-check inside the lock — the game may have ended while we waited.
         if game_is_running(game):
             await do_skip(context.bot, player, job_queue)

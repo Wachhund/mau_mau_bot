@@ -234,3 +234,48 @@ class TestLifecycle:
     def test_release_unknown_key_is_noop(self):
         proc = UnoUpdateProcessor(max_concurrent_updates=4)
         proc.release_key((999, None))  # must not raise
+
+    def test_lock_for_key_is_public_and_idempotent(self):
+        """Background tasks (job_queue) need a way to grab the same lock the
+        processor uses for inline updates of the same game."""
+        proc = UnoUpdateProcessor(max_concurrent_updates=4)
+        lock_a = proc.lock_for_key((1, None))
+        lock_b = proc.lock_for_key((1, None))
+        lock_c = proc.lock_for_key((1, 7))
+        assert lock_a is lock_b
+        assert lock_a is not lock_c
+
+
+class TestBackgroundTaskSerialization:
+    """A job_queue callback must contend with concurrent inline updates for
+    the same game when it grabs ``lock_for_key``."""
+
+    @pytest.mark.asyncio
+    async def test_lock_serializes_background_task_with_update(self):
+        import asyncio
+        proc = UnoUpdateProcessor(max_concurrent_updates=4)
+        running = []
+        peak = [0]
+
+        async def work():
+            running.append(1)
+            peak[0] = max(peak[0], len(running))
+            await asyncio.sleep(0.05)
+            running.pop()
+
+        async def background():
+            async with proc.lock_for_key((1, None)):
+                await work()
+
+        update = _make_message_update(chat_id=1)
+
+        await proc.initialize()
+        try:
+            await asyncio.gather(
+                proc.do_process_update(update, work()),
+                background(),
+            )
+        finally:
+            await proc.shutdown()
+
+        assert peak[0] == 1, "background task must serialize with same-key updates"
