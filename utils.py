@@ -80,8 +80,18 @@ def display_color_group(color, game):
 
 
 async def error(update: object, context: ContextTypes.DEFAULT_TYPE):
-    """Simple error handler"""
-    logger.exception(context.error)
+    """Log the exception PTB caught.
+
+    Uses ``exc_info=`` so the real traceback is attached: ``logger.exception``
+    only walks the active exception context (``sys.exc_info()``), which is
+    empty here because this handler runs after PTB has already swallowed
+    the exception.
+    """
+    exc = getattr(context, 'error', None) if context is not None else None
+    if exc is not None:
+        logger.error("Unhandled exception in update handler", exc_info=exc)
+    else:
+        logger.error("Error handler invoked without context.error")
 
 
 async def send_async(bot, *args, **kwargs):
