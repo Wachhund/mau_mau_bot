@@ -143,3 +143,5 @@ class TestContextVarIsolation:
         _locale_stack.set([])
         result = _("Test string")
         assert result == "Test string"
+
+

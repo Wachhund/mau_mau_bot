@@ -73,23 +73,15 @@ class UnoUpdateProcessor(BaseUpdateProcessor):
         self._locks.pop(key, None)
 
     def _key_for_update(self, update) -> Optional[GameKey]:
-        msg = getattr(update, 'message', None) or getattr(update, 'edited_message', None)
-        if msg is not None:
-            chat = getattr(msg, 'chat', None)
-            if chat is not None:
-                return (chat.id, getattr(msg, 'message_thread_id', None))
+        # update.effective_message covers Message, EditedMessage and the
+        # CallbackQuery.message case in a single attribute lookup.
+        msg = update.effective_message
+        if msg is not None and msg.chat is not None:
+            return (msg.chat.id, msg.message_thread_id)
 
-        cb = getattr(update, 'callback_query', None)
-        if cb is not None:
-            cb_msg = getattr(cb, 'message', None)
-            if cb_msg is not None:
-                chat = getattr(cb_msg, 'chat', None)
-                if chat is not None:
-                    return (chat.id, getattr(cb_msg, 'message_thread_id', None))
-
-        cir = getattr(update, 'chosen_inline_result', None)
+        cir = update.chosen_inline_result
         if cir is not None and self._game_resolver is not None:
-            result_id = getattr(cir, 'result_id', '') or ''
+            result_id = cir.result_id or ''
             parts = result_id.split(':', 2)
             if len(parts) < 3:
                 return None

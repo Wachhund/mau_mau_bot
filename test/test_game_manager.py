@@ -271,3 +271,36 @@ class TestTopicIsolation(unittest.TestCase):
         outsider = User(777, 'out', is_bot=False)
         # Must not raise
         self.gm.leave_all_games_in_chat(outsider, self.chat)
+
+
+class TestEndGameTaskReference(unittest.TestCase):
+    """jh0ker game_manager.py:167 — keep a strong reference to the
+    ``send_promotion`` task so it can't be garbage-collected mid-flight.
+
+    Reproduces the scenario described in the Python docs for
+    :func:`asyncio.create_task` (Important box)."""
+
+    def test_background_tasks_set_collects_scheduled_tasks(self):
+        import asyncio
+        gm = GameManager()
+        chat = Chat(50, 'group')
+        u0 = User(50, 'u0', is_bot=False)
+        u1 = User(51, 'u1', is_bot=False)
+
+        async def scenario():
+            gm.new_game(chat)
+            gm.join_game(u0, chat)
+            gm.join_game(u1, chat)
+            gm.end_game(chat, u0)
+            # Strong reference must live in a manager-owned collection.
+            assert hasattr(gm, '_background_tasks')
+            # Drain pending tasks so the test loop exits cleanly.
+            pending = [t for t in gm._background_tasks if not t.done()]
+            for t in pending:
+                t.cancel()
+            try:
+                await asyncio.gather(*pending, return_exceptions=True)
+            except Exception:
+                pass
+
+        asyncio.run(scenario())

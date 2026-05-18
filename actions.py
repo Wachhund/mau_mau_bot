@@ -12,7 +12,7 @@ from apscheduler.jobstores.base import JobLookupError
 from config import TIME_REMOVAL_AFTER_SKIP, MIN_FAST_TURN_TIME
 from pony.orm import db_session
 from errors import DeckEmptyError, NotEnoughPlayersError
-from internationalization import __, _, set_locale_stack
+from internationalization import __, _, locale_stack
 from shared_vars import gm
 from user_setting import UserSetting
 from utils import send_async, display_name, game_is_running
@@ -244,7 +244,6 @@ async def skip_job(context: ContextTypes.DEFAULT_TYPE):
     if not game_is_running(game):
         return
 
-    set_locale_stack(context.job.data.locales)
     job_queue = context.job.data.job_queue
 
     # Late-import to avoid circular imports at module load.
@@ -252,5 +251,7 @@ async def skip_job(context: ContextTypes.DEFAULT_TYPE):
     key = (game.chat.id, game.thread_id)
     async with update_processor.lock_for_key(key):
         # Re-check inside the lock — the game may have ended while we waited.
-        if game_is_running(game):
+        if not game_is_running(game):
+            return
+        with locale_stack(context.job.data.locales):
             await do_skip(context.bot, player, job_queue)

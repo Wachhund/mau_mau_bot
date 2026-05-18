@@ -48,6 +48,9 @@ class GameManager(object):
         self.userid_current = dict()
         self.remind_dict = dict()
         self.update_processor = None      # set by shared_vars after wiring
+        # Strong references for fire-and-forget background tasks
+        # (asyncio docs: tasks may be GC'd mid-flight without a strong ref).
+        self._background_tasks = set()
 
         self.logger = logging.getLogger(__name__)
 
@@ -190,8 +193,12 @@ class GameManager(object):
         game = player.game
 
         try:
-            asyncio.get_running_loop().create_task(
+            task = asyncio.get_running_loop().create_task(
                 send_promotion(chat, chance=0.15, message_thread_id=game.thread_id))
+            # Strong reference + self-removal on completion, per the asyncio
+            # docs (`create_task` Important box).
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
         except RuntimeError:
             pass
 

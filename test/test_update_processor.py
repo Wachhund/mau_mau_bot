@@ -28,31 +28,33 @@ from uno_update_processor import UnoUpdateProcessor
 
 
 def _make_message_update(chat_id, thread_id=None):
-    """Build a minimal Update-like object with .message.chat.id + thread."""
+    """Build a minimal Update-like object with .effective_message set."""
+    msg = SimpleNamespace(
+        chat=SimpleNamespace(id=chat_id),
+        message_thread_id=thread_id,
+    )
     return SimpleNamespace(
-        message=SimpleNamespace(
-            chat=SimpleNamespace(id=chat_id),
-            message_thread_id=thread_id,
-        ),
+        message=msg,
         edited_message=None,
         callback_query=None,
         chosen_inline_result=None,
         inline_query=None,
+        effective_message=msg,
     )
 
 
 def _make_callback_update(chat_id, thread_id=None):
+    msg = SimpleNamespace(
+        chat=SimpleNamespace(id=chat_id),
+        message_thread_id=thread_id,
+    )
     return SimpleNamespace(
         message=None,
         edited_message=None,
-        callback_query=SimpleNamespace(
-            message=SimpleNamespace(
-                chat=SimpleNamespace(id=chat_id),
-                message_thread_id=thread_id,
-            )
-        ),
+        callback_query=SimpleNamespace(message=msg),
         chosen_inline_result=None,
         inline_query=None,
+        effective_message=msg,
     )
 
 
@@ -63,6 +65,7 @@ def _make_chosen_inline_result_update(result_id):
         callback_query=None,
         chosen_inline_result=SimpleNamespace(result_id=result_id),
         inline_query=None,
+        effective_message=None,
     )
 
 
@@ -73,6 +76,7 @@ def _make_inline_query_update():
         callback_query=None,
         chosen_inline_result=None,
         inline_query=SimpleNamespace(query=''),
+        effective_message=None,
     )
 
 

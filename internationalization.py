@@ -19,6 +19,7 @@
 
 
 import gettext
+from contextlib import contextmanager
 from contextvars import ContextVar
 from functools import wraps
 
@@ -112,6 +113,28 @@ def __(singular, plural=None, n=1, multi=False):
     return '\n'.join(translations)
 
 
+@contextmanager
+def locale_stack(locales):
+    """Replace the current task's locale stack for the duration of the block,
+    restoring the previous stack on exit (even when the block raises).
+
+    Used by both :func:`game_locales` (decorator wrapping a request handler)
+    and :func:`actions.skip_job` (job-queue callback that re-enters with the
+    update's locale snapshot)."""
+    saved = _locale_stack.get([])
+    _locale_stack.set(list(locales))
+    try:
+        yield
+    finally:
+        _locale_stack.set(saved)
+
+
+def set_locale_stack(locales):
+    """Set the locale stack directly. Kept as a thin shim around the context
+    manager for callers that don't have a natural ``with``-scope."""
+    _locale_stack.set(list(locales))
+
+
 def user_locale(func):
     @wraps(func)
     async def wrapped(update, context, *pargs, **kwargs):
@@ -121,16 +144,10 @@ def user_locale(func):
         with db_session:
             us = UserSetting.get(id=user.id)
 
-        if us and us.lang != 'en':
-            _.push(us.lang)
-        else:
-            _.push('en_US')
-
-        try:
-            result = await func(update, context, *pargs, **kwargs)
-            return result
-        finally:
-            _.pop()
+        locale = us.lang if (us and us.lang != 'en') else 'en_US'
+        new_stack = _locale_stack.get([]) + [locale]
+        with locale_stack(new_stack):
+            return await func(update, context, *pargs, **kwargs)
     return wrapped
 
 
@@ -140,36 +157,19 @@ def game_locales(func):
         user, chat, thread_id = _user_chat_from_update(update)
         player = gm.player_for_user_in_chat(user, chat, thread_id=thread_id) \
             if chat is not None else None
-        locales = list()
 
+        new_stack = list(_locale_stack.get([]))
         if player:
-            for player in player.game.players:
+            for game_player in player.game.players:
                 with db_session:
-                    us = UserSetting.get(id=player.user.id)
+                    us = UserSetting.get(id=game_player.user.id)
+                loc = us.lang if (us and us.lang != 'en') else 'en_US'
+                if loc not in new_stack:
+                    new_stack.append(loc)
 
-                if us and us.lang != 'en':
-                    loc = us.lang
-                else:
-                    loc = 'en_US'
-
-                if loc in locales:
-                    continue
-
-                _.push(loc)
-                locales.append(loc)
-
-        try:
-            result = await func(update, context, *pargs, **kwargs)
-            return result
-        finally:
-            while _.code:
-                _.pop()
+        with locale_stack(new_stack):
+            return await func(update, context, *pargs, **kwargs)
     return wrapped
-
-
-def set_locale_stack(locales):
-    """Set the locale stack directly, for use in job callbacks"""
-    _locale_stack.set(list(locales))
 
 
 def _user_chat_from_update(update):
