@@ -35,6 +35,10 @@ class GameManager(object):
     Concurrency is handled by :class:`uno_update_processor.UnoUpdateProcessor`,
     not in this manager. ``update_processor`` is set from ``shared_vars`` after
     construction so that ``end_game`` can release the matching lock.
+
+    All public lookup/mutation methods that touch a single game take an
+    explicit ``thread_id``. There is no cross-topic fallback — a caller in
+    the General channel cannot accidentally act on a topic-bound game.
     """
 
     def __init__(self):
@@ -70,17 +74,12 @@ class GameManager(object):
         return game
 
     def join_game(self, user, chat, thread_id=None):
-        """Create a player from the Telegram user and add it to the game."""
-        self.logger.info("Joining game with chat id " + str(chat.id))
+        """Add a player to the game in this ``(chat, thread_id)``."""
+        self.logger.info("Joining game in chat %s topic %s", chat.id, thread_id)
 
         game = self.game_for_chat_topic(chat.id, thread_id)
         if game is None:
-            # Backwards-friendly: if no exact (chat, topic) game exists but the
-            # caller did not specify a thread, fall back to any game in the chat.
-            if thread_id is None:
-                game = self._any_game_in_chat(chat.id)
-            if game is None:
-                raise NoGameInChatError()
+            raise NoGameInChatError()
 
         if not game.open:
             raise LobbyClosedError()
@@ -90,14 +89,15 @@ class GameManager(object):
 
         players = self.userid_players[user.id]
 
-        # Don't re-add a player and remove the player from previous games in
-        # this chat, if he is in one of them
+        # Reject re-joining the same game
         for player in players:
             if player in game.players:
                 raise AlreadyJoinedError()
 
+        # If the user is already in *this* (chat, thread_id) game (via a
+        # different player slot), drop the old slot first
         try:
-            self.leave_game(user, chat)
+            self.leave_game(user, chat, thread_id=thread_id)
         except NoGameInChatError:
             pass
         except NotEnoughPlayersError:
@@ -115,22 +115,17 @@ class GameManager(object):
         players.append(player)
         self.userid_current[user.id] = player
 
-    def leave_game(self, user, chat):
-        """Remove a player from its current game."""
+    def leave_game(self, user, chat, thread_id=None):
+        """Remove a player from the game in this ``(chat, thread_id)``.
 
-        player = self.player_for_user_in_chat(user, chat)
-        players = self.userid_players.get(user.id, list())
-
-        if not player:
-            for game in self._games_in_chat(chat.id):
-                for p in game.players:
-                    if p.user.id == user.id:
-                        if p == game.current_player:
-                            game.turn()
-                        p.leave()
-                        return
-
-            raise NoGameInChatError
+        Raises :class:`NoGameInChatError` if the user is not playing in that
+        specific topic. To remove a user from every game in a chat (e.g. when
+        Telegram fires ``left_chat_member``), use
+        :meth:`leave_all_games_in_chat` instead.
+        """
+        player = self.player_for_user_in_chat(user, chat, thread_id=thread_id)
+        if player is None:
+            raise NoGameInChatError()
 
         game = player.game
 
@@ -141,23 +136,55 @@ class GameManager(object):
             game.turn()
 
         player.leave()
-        players.remove(player)
 
-        # If this is the selected game, switch to another
+        players = self.userid_players.get(user.id, list())
+        try:
+            players.remove(player)
+        except ValueError:
+            pass
+
+        # Re-point userid_current if we just removed the active selection
         if self.userid_current.get(user.id, None) is player:
             if players:
                 self.userid_current[user.id] = players[0]
             else:
-                del self.userid_current[user.id]
-                del self.userid_players[user.id]
+                self.userid_current.pop(user.id, None)
+                self.userid_players.pop(user.id, None)
+
+    def leave_all_games_in_chat(self, user, chat):
+        """Remove ``user`` from every active game in ``chat``.
+
+        Used when Telegram tells us the user left the group entirely — at
+        that point we don't know which topic they were playing in, so we
+        clean them out of all of them. Never raises.
+        """
+        for game in list(self._games_in_chat(chat.id)):
+            try:
+                self.leave_game(user, chat, thread_id=game.thread_id)
+            except NoGameInChatError:
+                continue
+            except NotEnoughPlayersError:
+                # Caller (status_update) handles the announcement after the
+                # game ends; propagate by ending the game ourselves.
+                self.end_game(chat, user)
 
     def end_game(self, chat, user):
-        """End a game."""
+        """End the game whose ``current_player`` includes ``user``."""
 
-        self.logger.info("Game in chat " + str(chat.id) + " ended")
+        self.logger.info("Game in chat %s ended", chat.id)
 
-        player = self.player_for_user_in_chat(user, chat)
-        if not player:
+        # End the first game in the chat where this user is a player. Since
+        # a user can be in at most one game per (chat, thread), this is
+        # unambiguous within a topic.
+        player = None
+        for game in self._games_in_chat(chat.id):
+            for p in game.players:
+                if p.user.id == user.id:
+                    player = p
+                    break
+            if player is not None:
+                break
+        if player is None:
             raise NoGameInChatError
 
         game = player.game
@@ -194,10 +221,17 @@ class GameManager(object):
         """Return the active Game with the given ``game.id`` or ``None``."""
         return self.games_by_id.get(game_id)
 
-    def player_for_user_in_chat(self, user, chat):
-        players = self.userid_players.get(user.id, list())
-        for player in players:
-            if player.game.chat.id == chat.id:
+    def player_for_user_in_chat(self, user, chat, thread_id=None):
+        """Return the ``Player`` for ``user`` in the ``(chat, thread_id)`` game.
+
+        Returns ``None`` if the user is not in that specific game — even if
+        they are playing in a different topic of the same chat.
+        """
+        game = self.game_for_chat_topic(chat.id, thread_id)
+        if game is None:
+            return None
+        for player in game.players:
+            if player.user.id == user.id:
                 return player
         return None
 
@@ -208,11 +242,6 @@ class GameManager(object):
         for (cid, _tid), game in self.chatid_games.items():
             if cid == chat_id:
                 yield game
-
-    def _any_game_in_chat(self, chat_id):
-        for game in self._games_in_chat(chat_id):
-            return game
-        return None
 
     def _forget_game(self, game):
         """Drop a game from all in-memory indexes and release its lock."""

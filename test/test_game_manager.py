@@ -154,8 +154,8 @@ class Test(unittest.TestCase):
         self.gm.update_processor = FakeProcessor()
 
         g = self.gm.new_game(self.chat0, thread_id=11)
-        self.gm.join_game(self.user0, self.chat0)
-        self.gm.join_game(self.user1, self.chat0)
+        self.gm.join_game(self.user0, self.chat0, thread_id=11)
+        self.gm.join_game(self.user1, self.chat0, thread_id=11)
         self.gm.end_game(self.chat0, self.user0)
 
         self.assertEqual(released, [(0, 11)])
@@ -167,3 +167,107 @@ class Test(unittest.TestCase):
         self.gm.join_game(self.user1, self.chat0)
         # Should not raise even though update_processor is None
         self.gm.end_game(self.chat0, self.user0)
+
+
+class TestTopicIsolation(unittest.TestCase):
+    """Cross-topic correctness after the (chat, thread_id) singleton change.
+
+    These tests pin the regressions jh0ker flagged on PR #138:
+    - leave_game / player_for_user_in_chat must be topic-scoped
+    - join_game must not silently fall back to a game in a different topic
+    - status_update (left_chat_member) still needs a way to remove a user
+      from every game in the chat
+    """
+
+    def setUp(self):
+        self.gm = GameManager()
+        self.chat = Chat(10, 'supergroup')
+
+        self.user_a = User(100, 'a', is_bot=False)
+        self.user_b = User(101, 'b', is_bot=False)
+        self.user_c = User(102, 'c', is_bot=False)
+        self.user_d = User(103, 'd', is_bot=False)
+        self.user_e = User(104, 'e', is_bot=False)
+
+        # Two parallel games in the same chat, different topics
+        self.game_main = self.gm.new_game(self.chat)               # (10, None)
+        self.game_topic = self.gm.new_game(self.chat, thread_id=7) # (10, 7)
+
+        # 3 players in each so leave does not trigger NotEnoughPlayersError
+        self.gm.join_game(self.user_a, self.chat, thread_id=None)
+        self.gm.join_game(self.user_d, self.chat, thread_id=None)
+        self.gm.join_game(self.user_c, self.chat, thread_id=None)
+
+        self.gm.join_game(self.user_b, self.chat, thread_id=7)
+        self.gm.join_game(self.user_e, self.chat, thread_id=7)
+        self.gm.join_game(self.user_c, self.chat, thread_id=7)
+        # user_c is now in both games; currently active = topic (last join)
+
+    # jh0ker game_manager.py:83 — no cross-topic fallback in join_game
+    def test_join_game_does_not_fall_back_across_topics(self):
+        new_user = User(999, 'new', is_bot=False)
+        # Try to /join from a topic that has NO game
+        with self.assertRaises(NoGameInChatError):
+            self.gm.join_game(new_user, self.chat, thread_id=42)
+        self.assertNotIn(new_user.id, self.gm.userid_players)
+
+    def test_join_game_from_general_does_not_grab_topic_game(self):
+        # Fresh chat with ONLY a topic game — /join from General must fail
+        gm2 = GameManager()
+        chat = Chat(20, 'supergroup')
+        gm2.new_game(chat, thread_id=5)
+        gm2.join_game(User(1, 'u1', is_bot=False), chat, thread_id=5)
+
+        outsider = User(2, 'out', is_bot=False)
+        with self.assertRaises(NoGameInChatError):
+            gm2.join_game(outsider, chat, thread_id=None)
+        self.assertNotIn(outsider.id, gm2.userid_players)
+
+    # jh0ker game_manager.py:131 — leave_game must respect thread_id
+    def test_leave_game_only_removes_from_specified_topic(self):
+        # user_c is in (10, None) AND (10, 7) — leave from topic only
+        self.gm.leave_game(self.user_c, self.chat, thread_id=7)
+
+        topic_user_ids = {p.user.id for p in self.game_topic.players}
+        main_user_ids = {p.user.id for p in self.game_main.players}
+
+        self.assertNotIn(self.user_c.id, topic_user_ids,
+                         "user_c must leave the topic game")
+        self.assertIn(self.user_c.id, main_user_ids,
+                      "user_c must remain in the main game")
+
+    def test_leave_game_unknown_topic_raises(self):
+        with self.assertRaises(NoGameInChatError):
+            self.gm.leave_game(self.user_a, self.chat, thread_id=999)
+
+    # jh0ker game_manager.py:159 — player_for_user_in_chat must be topic-scoped
+    def test_player_for_user_in_chat_resolves_specific_topic(self):
+        # user_c sits in BOTH games — ask for each topic separately
+        p_main = self.gm.player_for_user_in_chat(self.user_c, self.chat,
+                                                 thread_id=None)
+        p_topic = self.gm.player_for_user_in_chat(self.user_c, self.chat,
+                                                  thread_id=7)
+        self.assertIsNotNone(p_main)
+        self.assertIsNotNone(p_topic)
+        self.assertIs(p_main.game, self.game_main)
+        self.assertIs(p_topic.game, self.game_topic)
+        self.assertIsNot(p_main, p_topic)
+
+    def test_player_for_user_in_chat_unknown_topic_returns_none(self):
+        self.assertIsNone(
+            self.gm.player_for_user_in_chat(self.user_a, self.chat,
+                                             thread_id=999))
+
+    # New helper: status_update needs to remove a user from every game in chat
+    def test_leave_all_games_in_chat_clears_user_from_every_topic(self):
+        self.gm.leave_all_games_in_chat(self.user_c, self.chat)
+
+        main_ids = {p.user.id for p in self.game_main.players}
+        topic_ids = {p.user.id for p in self.game_topic.players}
+        self.assertNotIn(self.user_c.id, main_ids)
+        self.assertNotIn(self.user_c.id, topic_ids)
+
+    def test_leave_all_games_in_chat_is_noop_when_user_not_playing(self):
+        outsider = User(777, 'out', is_bot=False)
+        # Must not raise
+        self.gm.leave_all_games_in_chat(outsider, self.chat)

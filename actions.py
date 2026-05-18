@@ -65,7 +65,7 @@ async def do_skip(bot, player, job_queue=None):
 
     else:
         try:
-            gm.leave_game(skipped_player.user, chat)
+            gm.leave_game(skipped_player.user, chat, thread_id=game.thread_id)
             await send_async(bot, chat.id,
                        text=__("{name1} ran out of time "
                             "and has been removed from the game!\n"
@@ -131,7 +131,7 @@ async def do_play_card(bot, player, result_id):
         game.players_won += 1
 
         try:
-            gm.leave_game(user, chat)
+            gm.leave_game(user, chat, thread_id=game.thread_id)
         except NotEnoughPlayersError:
             await send_async(bot, chat.id,
                        text=__("Game ended!", multi=game.translate),

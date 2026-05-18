@@ -63,15 +63,12 @@ def get_thread_id(update):
 
 
 def _game_in_chat(chat_id, thread_id):
-    """Resolve the active game in this (chat, thread). Falls back to any game
-    in the same chat when thread_id is None — this preserves previous UX where
-    /kill from the General channel could close a topic-bound game."""
-    game = gm.game_for_chat_topic(chat_id, thread_id)
-    if game is not None:
-        return game
-    if thread_id is None:
-        return gm._any_game_in_chat(chat_id)
-    return None
+    """Resolve the active game in this ``(chat, thread)`` or ``None``.
+
+    No cross-topic fallback — a user typing in General can only act on the
+    General-channel game, never on a topic-bound game.
+    """
+    return gm.game_for_chat_topic(chat_id, thread_id)
 
 
 def _resolve_game_id(game_id):
@@ -222,8 +219,9 @@ async def join_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
                    message_thread_id=game.thread_id if game else thread_id)
         return
 
-    # Success — get the game the player just joined
-    player = gm.player_for_user_in_chat(update.message.from_user, chat)
+    # Success — confirm in the topic of the game the player just joined
+    player = gm.player_for_user_in_chat(update.message.from_user, chat,
+                                         thread_id=thread_id)
     game_thread = player.game.thread_id if player else thread_id
     await send_async(context.bot, chat.id,
                text=_("Joined the game"),
@@ -236,20 +234,21 @@ async def leave_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler for the /leave command"""
     chat = update.message.chat
     user = update.message.from_user
+    thread_id = get_thread_id(update)
 
-    player = gm.player_for_user_in_chat(user, chat)
+    player = gm.player_for_user_in_chat(user, chat, thread_id=thread_id)
 
     if player is None:
         await send_async(context.bot, chat.id, text=_("You are not playing in a game in "
                                         "this group."),
                    reply_to_message_id=update.message.message_id,
-                   message_thread_id=get_thread_id(update))
+                   message_thread_id=thread_id)
         return
 
     game = player.game
 
     try:
-        gm.leave_game(user, chat)
+        gm.leave_game(user, chat, thread_id=thread_id)
 
     except NoGameInChatError:
         await send_async(context.bot, chat.id, text=_("You are not playing in a game in "
@@ -315,7 +314,7 @@ async def kick_player(update: Update, context: ContextTypes.DEFAULT_TYPE):
             kicked = update.message.reply_to_message.from_user
 
             try:
-                gm.leave_game(kicked, chat)
+                gm.leave_game(kicked, chat, thread_id=thread_id)
 
             except NoGameInChatError:
                 await send_async(context.bot, chat.id, text=_("Player {name} is not found in the current game.".format(name=display_name(kicked))),
@@ -397,33 +396,44 @@ async def select_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @game_locales
 async def status_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Remove player from game if user leaves the group"""
+    """Remove player from every game in the chat when they leave the group.
+
+    The user may have been in several topic-bound games at once — Telegram
+    only tells us they left the group as a whole, not which topic they were
+    playing in, so we clean them out of every active game in the chat and
+    announce in each affected topic.
+    """
     chat = update.message.chat
 
     if update.message.left_chat_member:
         user = update.message.left_chat_member
 
-        player = gm.player_for_user_in_chat(user, chat)
-        if not player:
+        # Snapshot all games the user is in, before they get removed
+        affected = []
+        for game in list(gm._games_in_chat(chat.id)):
+            if any(p.user.id == user.id for p in game.players):
+                affected.append(game)
+
+        if not affected:
             return
 
-        game = player.game
+        for game in affected:
+            try:
+                gm.leave_game(user, chat, thread_id=game.thread_id)
+            except NoGameInChatError:
+                continue
+            except NotEnoughPlayersError:
+                gm.end_game(chat, user)
+                await send_async(context.bot, chat.id,
+                                 text=__("Game ended!", multi=game.translate),
+                                 message_thread_id=game.thread_id)
+                continue
 
-        try:
-            gm.leave_game(user, chat)
-        except NoGameInChatError:
-            return
-        except NotEnoughPlayersError:
-            gm.end_game(chat, user)
-            await send_async(context.bot, chat.id, text=__("Game ended!",
-                                             multi=game.translate),
-                       message_thread_id=game.thread_id)
-            return
-
-        await send_async(context.bot, chat.id, text=__("Removing {name} from the game",
-                                         multi=game.translate)
-                   .format(name=display_name(user)),
-                   message_thread_id=game.thread_id)
+            await send_async(context.bot, chat.id,
+                             text=__("Removing {name} from the game",
+                                     multi=game.translate)
+                             .format(name=display_name(user)),
+                             message_thread_id=game.thread_id)
 
 
 @game_locales
@@ -628,12 +638,13 @@ async def skip_player(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler for the /skip command"""
     chat = update.message.chat
     user = update.message.from_user
+    thread_id = get_thread_id(update)
 
-    player = gm.player_for_user_in_chat(user, chat)
+    player = gm.player_for_user_in_chat(user, chat, thread_id=thread_id)
     if not player:
         await send_async(context.bot, chat.id,
                    text=_("You are not playing in a game in this chat."),
-                   message_thread_id=get_thread_id(update))
+                   message_thread_id=thread_id)
         return
 
     game = player.game

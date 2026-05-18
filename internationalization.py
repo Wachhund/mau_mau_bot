@@ -116,6 +116,7 @@ def user_locale(func):
     @wraps(func)
     async def wrapped(update, context, *pargs, **kwargs):
         user = _user_chat_from_update(update)[0]
+        # chat and thread_id are unused here
 
         with db_session:
             us = UserSetting.get(id=user.id)
@@ -136,8 +137,9 @@ def user_locale(func):
 def game_locales(func):
     @wraps(func)
     async def wrapped(update, context, *pargs, **kwargs):
-        user, chat = _user_chat_from_update(update)
-        player = gm.player_for_user_in_chat(user, chat)
+        user, chat, thread_id = _user_chat_from_update(update)
+        player = gm.player_for_user_in_chat(user, chat, thread_id=thread_id) \
+            if chat is not None else None
         locales = list()
 
         if player:
@@ -173,8 +175,14 @@ def set_locale_stack(locales):
 def _user_chat_from_update(update):
     user = update.effective_user
     chat = update.effective_chat
+    msg = update.effective_message
+    thread_id = msg.message_thread_id if msg is not None else None
 
     if chat is None and user is not None and user.id in gm.userid_current:
-        chat = gm.userid_current.get(user.id).game.chat
+        # Inline-query path: borrow the chat from the user's currently active
+        # game so that the locale decorators have something to work with.
+        current_game = gm.userid_current[user.id].game
+        chat = current_game.chat
+        thread_id = current_game.thread_id
 
-    return user, chat
+    return user, chat, thread_id
