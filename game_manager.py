@@ -21,6 +21,8 @@
 import asyncio
 import logging
 
+from apscheduler.jobstores.base import JobLookupError
+
 from game import Game
 from player import Player
 from errors import (AlreadyJoinedError, DeckEmptyError, GameAlreadyRunningError,
@@ -133,6 +135,13 @@ class GameManager(object):
 
         for player in game.players:
             self._drop_player(player)
+
+        if game.job is not None:
+            try:
+                game.job.schedule_removal()
+            except JobLookupError:
+                pass  # already fired
+            game.job = None
 
         self._forget_game(game)
 

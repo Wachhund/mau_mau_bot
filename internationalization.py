@@ -98,19 +98,19 @@ _ = _Underscore()
 
 
 def __(singular, plural=None, n=1, multi=False):
-    """Translates text into all locales on the stack"""
-    translations = list()
+    """Translates text into all locales on the stack, or English only when
+    ``multi`` is off or nothing is on the stack."""
     stack = _locale_stack.get([])
 
-    if not multi and len(set(stack)) >= 1:
-        translations.append(_(singular, plural, n, 'en_US'))
+    if not multi or not stack:
+        return _(singular, plural, n, 'en_US')
 
-    else:
-        for locale in stack:
-            translation = _(singular, plural, n, locale)
+    translations = list()
+    for locale in stack:
+        translation = _(singular, plural, n, locale)
 
-            if translation not in translations:
-                translations.append(translation)
+        if translation not in translations:
+            translations.append(translation)
 
     return '\n'.join(translations)
 
@@ -137,17 +137,21 @@ def set_locale_stack(locales):
     _locale_stack.set(list(locales))
 
 
+def user_locale_code(user_id):
+    """The locale a user picked in /settings, or ``en_US``. A settings row
+    created for statistics has an empty ``lang``."""
+    with db_session:
+        us = UserSetting.get(id=user_id)
+    if us and us.lang and us.lang != 'en':
+        return us.lang
+    return 'en_US'
+
+
 def user_locale(func):
     @wraps(func)
     async def wrapped(update, context, *pargs, **kwargs):
         user = _user_chat_from_update(update)[0]
-        # chat and thread_id are unused here
-
-        with db_session:
-            us = UserSetting.get(id=user.id)
-
-        locale = us.lang if (us and us.lang != 'en') else 'en_US'
-        new_stack = _locale_stack.get([]) + [locale]
+        new_stack = _locale_stack.get([]) + [user_locale_code(user.id)]
         with locale_stack(new_stack):
             return await func(update, context, *pargs, **kwargs)
     return wrapped
@@ -157,9 +161,7 @@ def game_locale_stack(game):
     """The locales of a game's players, deduplicated, in seating order."""
     locales = []
     for game_player in game.players:
-        with db_session:
-            us = UserSetting.get(id=game_player.user.id)
-        loc = us.lang if (us and us.lang != 'en') else 'en_US'
+        loc = user_locale_code(game_player.user.id)
         if loc not in locales:
             locales.append(loc)
     return locales

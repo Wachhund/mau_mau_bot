@@ -47,7 +47,8 @@ from simple_commands import help_handler
 from start_bot import start_bot
 from uno_update_processor import topic_id
 from utils import display_name
-from utils import send_async, answer_async, error, user_is_creator_or_admin, user_is_creator, game_is_running
+from utils import (answer_async, error, game_is_running, safe_call,
+                   send_async, user_is_creator, user_is_creator_or_admin)
 
 
 logger = logging.getLogger(__name__)
@@ -244,6 +245,7 @@ async def leave_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     game = player.game
+    was_current = player is game.current_player
 
     try:
         gm.leave_game(user, chat, thread_id=thread_id)
@@ -260,6 +262,9 @@ async def leave_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_async(context.bot, chat.id, text=__("Game ended!", multi=game.translate),
                    message_thread_id=game.thread_id)
         return
+
+    if game.started and was_current:
+        start_player_countdown(game, context.job_queue)
 
     if game.started:
         await send_async(context.bot, chat.id,
@@ -310,6 +315,9 @@ async def kick_player(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if update.message.reply_to_message:
             kicked = update.message.reply_to_message.from_user
+            kicked_player = gm.player_for_user_in_chat(kicked, chat,
+                                                       thread_id=thread_id)
+            was_current = kicked_player is game.current_player
 
             try:
                 gm.leave_game(kicked, chat, thread_id=thread_id)
@@ -328,6 +336,9 @@ async def kick_player(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await send_async(context.bot, chat.id, text=__("Game ended!", multi=game.translate),
                                 message_thread_id=game.thread_id)
                 return
+
+            if was_current:
+                start_player_countdown(game, context.job_queue)
 
             await send_async(context.bot, chat.id,
                             text=_("{0} was kicked by {1}".format(display_name(kicked), display_name(user))),
@@ -489,6 +500,10 @@ async def start_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
             for player in game.players:
                 player.draw_first_hand()
 
+            # Arm the timer before any send, so a failed send cannot leave
+            # a started game without one.
+            start_player_countdown(game, context.job_queue)
+
             choice = [[InlineKeyboardButton(text=_("Make your choice!"), switch_inline_query_current_chat='')]]
             first_message = (
                 __("First player: {name}\n"
@@ -497,16 +512,15 @@ async def start_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
                    multi=game.translate)
                 .format(name=display_name(game.current_player.user)))
 
-            await context.bot.send_sticker(chat.id,
-                            sticker=c.STICKERS[str(game.last_card)],
-                            message_thread_id=game.thread_id)
+            await safe_call(context.bot.send_sticker(
+                chat.id,
+                sticker=c.STICKERS[str(game.last_card)],
+                message_thread_id=game.thread_id))
 
-            await context.bot.send_message(chat.id,
-                            text=first_message,
-                            reply_markup=InlineKeyboardMarkup(choice),
-                            message_thread_id=game.thread_id)
-
-            start_player_countdown(game, context.job_queue)
+            await send_async(context.bot, chat.id,
+                             text=first_message,
+                             reply_markup=InlineKeyboardMarkup(choice),
+                             message_thread_id=game.thread_id)
 
     elif context.args and context.args[0] == 'select':
         user_id = update.message.from_user.id

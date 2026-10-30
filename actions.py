@@ -8,7 +8,7 @@ from apscheduler.jobstores.base import JobLookupError
 from config import TIME_REMOVAL_AFTER_SKIP, MIN_FAST_TURN_TIME
 from pony.orm import db_session
 from errors import DeckEmptyError, NotEnoughPlayersError
-from internationalization import __, locale_stack
+from internationalization import __, game_locale_stack, locale_stack
 from shared_vars import gm
 from user_setting import UserSetting
 from utils import send_async, display_name, game_is_running
@@ -220,13 +220,12 @@ def start_player_countdown(game, job_queue):
             except JobLookupError:
                 pass
 
-        from internationalization import _locale_stack
-        locales = _locale_stack.get([])
-
+        # The skip message is translated for the game's players, whoever
+        # armed the timer.
         job = job_queue.run_once(
             skip_job,
             time,
-            data=Countdown(player, job_queue, locales)
+            data=Countdown(player, job_queue, game_locale_stack(game))
         )
 
         logger.info("Started countdown for player: {player}. {time} seconds."
@@ -246,7 +245,10 @@ async def skip_job(context: ContextTypes.DEFAULT_TYPE):
     # Late import to avoid an import cycle at module load.
     from shared_vars import update_processor
     async with update_processor.serialized((game.chat.id, game.thread_id)):
-        if not game_is_running(game):
+        # The timer is stale if the game ended, a newer timer replaced it,
+        # or the turn already passed while this job waited for the lock.
+        if (not game_is_running(game) or context.job != game.job
+                or game.current_player is not player):
             return
         with locale_stack(context.job.data.locales):
             messages = do_skip(player)

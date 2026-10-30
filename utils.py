@@ -94,23 +94,30 @@ async def error(update: object, context: ContextTypes.DEFAULT_TYPE):
         logger.error("Error handler invoked without context.error")
 
 
-async def send_async(bot, *args, **kwargs):
-    """Send a message, swallowing exceptions so a failed send does not crash
-    the calling handler. Network timeouts are configured centrally on the
-    Application builder (see ``shared_vars.py``)."""
+async def safe_call(coro):
+    """Await a bot call, logging a failure instead of raising.
+
+    Use it where a failed request must not abort the handler. Network
+    timeouts are configured on the Application builder (``shared_vars.py``).
+
+    Example:
+        await safe_call(bot.send_sticker(chat_id, sticker=file_id))
+    """
     try:
-        await bot.send_message(*args, **kwargs)
-    except Exception as e:
-        logger.exception(e)
+        return await coro
+    except Exception:
+        logger.exception("Bot call failed")
+        return None
+
+
+async def send_async(bot, *args, **kwargs):
+    """Send a message; a failed send is logged, not raised."""
+    return await safe_call(bot.send_message(*args, **kwargs))
 
 
 async def answer_async(bot, *args, **kwargs):
-    """Answer an inline query, swallowing exceptions for the same reason as
-    :func:`send_async`."""
-    try:
-        await bot.answer_inline_query(*args, **kwargs)
-    except Exception as e:
-        logger.exception(e)
+    """Answer an inline query; a failure is logged, not raised."""
+    return await safe_call(bot.answer_inline_query(*args, **kwargs))
 
 
 def game_is_running(game):
