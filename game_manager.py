@@ -23,29 +23,24 @@ import logging
 
 from game import Game
 from player import Player
-from errors import (AlreadyJoinedError, GameAlreadyRunningError,
+from errors import (AlreadyJoinedError, DeckEmptyError, GameAlreadyRunningError,
                     LobbyClosedError, NoGameInChatError, NotEnoughPlayersError)
 from promotions import send_promotion
 
 
 class GameManager(object):
-    """Owns all running games — keyed by ``(chat_id, thread_id)``.
+    """Owns all running games.
 
-    Each ``(chat_id, thread_id)`` may host **at most one** active game.
-    Concurrency is handled by :class:`uno_update_processor.UnoUpdateProcessor`,
-    not in this manager. ``update_processor`` is set from ``shared_vars`` after
-    construction so that ``end_game`` can release the matching lock.
-
-    All public lookup/mutation methods that touch a single game take an
-    explicit ``thread_id``. There is no cross-topic fallback — a caller in
-    the General channel cannot accidentally act on a topic-bound game.
+    Each ``(chat_id, thread_id)`` hosts at most one game. Every lookup takes an
+    explicit ``thread_id``; there is no cross-topic fallback. Concurrency is
+    handled by :class:`uno_update_processor.UnoUpdateProcessor`, not here.
     """
 
     def __init__(self):
-        self.chatid_games = dict()        # (chat_id, thread_id) -> Game
+        self.chatid_games = dict()        # chat_id -> {thread_id: Game}
         self.games_by_id = dict()         # game.id -> Game
-        self.userid_players = dict()
-        self.userid_current = dict()
+        self.userid_players = dict()      # user_id -> [Player]
+        self.userid_current = dict()      # user_id -> Player
         self.remind_dict = dict()
         self.update_processor = None      # set by shared_vars after wiring
         # Strong references for fire-and-forget background tasks
@@ -56,23 +51,20 @@ class GameManager(object):
 
     def new_game(self, chat, thread_id=None):
         """Create a new game in this chat/topic. Singleton per (chat, topic)."""
-        chat_id = chat.id
-        key = (chat_id, thread_id)
-
-        existing = self.chatid_games.get(key)
+        existing = self.game_for_chat_topic(chat.id, thread_id)
         if existing is not None and existing.players:
             raise GameAlreadyRunningError()
 
         if existing is not None:
-            # An empty stale lobby — drop it before replacing.
+            # An empty stale lobby: drop it before replacing.
             self._forget_game(existing)
 
         self.logger.debug("Creating new game in chat %s topic %s",
-                          chat_id, thread_id)
+                          chat.id, thread_id)
         game = Game(chat)
         game.thread_id = thread_id
 
-        self.chatid_games[key] = game
+        self.chatid_games.setdefault(chat.id, dict())[thread_id] = game
         self.games_by_id[game.id] = game
         return game
 
@@ -87,44 +79,26 @@ class GameManager(object):
         if not game.open:
             raise LobbyClosedError()
 
-        if user.id not in self.userid_players:
-            self.userid_players[user.id] = list()
-
-        players = self.userid_players[user.id]
-
-        # Reject re-joining the same game
-        for player in players:
-            if player in game.players:
-                raise AlreadyJoinedError()
-
-        # If the user is already in *this* (chat, thread_id) game (via a
-        # different player slot), drop the old slot first
-        try:
-            self.leave_game(user, chat, thread_id=thread_id)
-        except NoGameInChatError:
-            pass
-        except NotEnoughPlayersError:
-            self.end_game(chat, user)
-
-            if user.id not in self.userid_players:
-                self.userid_players[user.id] = list()
-
-            players = self.userid_players[user.id]
+        if self.player_for_user_in_chat(user, chat, thread_id=thread_id):
+            raise AlreadyJoinedError()
 
         player = Player(game, user)
         if game.started:
-            player.draw_first_hand()
+            try:
+                player.draw_first_hand()
+            except DeckEmptyError:
+                player.leave()
+                raise
 
-        players.append(player)
+        self.userid_players.setdefault(user.id, list()).append(player)
         self.userid_current[user.id] = player
 
     def leave_game(self, user, chat, thread_id=None):
         """Remove a player from the game in this ``(chat, thread_id)``.
 
         Raises :class:`NoGameInChatError` if the user is not playing in that
-        specific topic. To remove a user from every game in a chat (e.g. when
-        Telegram fires ``left_chat_member``), use
-        :meth:`leave_all_games_in_chat` instead.
+        topic and :class:`NotEnoughPlayersError` if the game could not go on
+        without them (the caller decides whether to end it).
         """
         player = self.player_for_user_in_chat(user, chat, thread_id=thread_id)
         if player is None:
@@ -139,62 +113,18 @@ class GameManager(object):
             game.turn()
 
         player.leave()
+        self._drop_player(player)
 
-        players = self.userid_players.get(user.id, list())
-        try:
-            players.remove(player)
-        except ValueError:
-            pass
+    def end_game(self, game):
+        """End ``game``: forget it and drop its players from the user indexes.
 
-        # Re-point userid_current if we just removed the active selection
-        if self.userid_current.get(user.id, None) is player:
-            if players:
-                self.userid_current[user.id] = players[0]
-            else:
-                self.userid_current.pop(user.id, None)
-                self.userid_players.pop(user.id, None)
-
-    def leave_all_games_in_chat(self, user, chat):
-        """Remove ``user`` from every active game in ``chat``.
-
-        Used when Telegram tells us the user left the group entirely — at
-        that point we don't know which topic they were playing in, so we
-        clean them out of all of them. Never raises.
-        """
-        for game in list(self._games_in_chat(chat.id)):
-            try:
-                self.leave_game(user, chat, thread_id=game.thread_id)
-            except NoGameInChatError:
-                continue
-            except NotEnoughPlayersError:
-                # Caller (status_update) handles the announcement after the
-                # game ends; propagate by ending the game ourselves.
-                self.end_game(chat, user)
-
-    def end_game(self, chat, user):
-        """End the game whose ``current_player`` includes ``user``."""
-
-        self.logger.info("Game in chat %s ended", chat.id)
-
-        # End the first game in the chat where this user is a player. Since
-        # a user can be in at most one game per (chat, thread), this is
-        # unambiguous within a topic.
-        player = None
-        for game in self._games_in_chat(chat.id):
-            for p in game.players:
-                if p.user.id == user.id:
-                    player = p
-                    break
-            if player is not None:
-                break
-        if player is None:
-            raise NoGameInChatError
-
-        game = player.game
+        Safe to call for a game that has already ended."""
+        self.logger.info("Game %s in chat %s ended", game.id, game.chat.id)
 
         try:
             task = asyncio.get_running_loop().create_task(
-                send_promotion(chat, chance=0.15, message_thread_id=game.thread_id))
+                send_promotion(game.chat, chance=0.15,
+                               message_thread_id=game.thread_id))
             # Strong reference + self-removal on completion, per the asyncio
             # docs (`create_task` Important box).
             self._background_tasks.add(task)
@@ -202,27 +132,18 @@ class GameManager(object):
         except RuntimeError:
             pass
 
-        # Clear all players from the userid maps
-        for player_in_game in game.players:
-            this_users_players = \
-                self.userid_players.get(player_in_game.user.id, list())
-
-            try:
-                this_users_players.remove(player_in_game)
-            except ValueError:
-                pass
-
-            if this_users_players:
-                self.userid_current[player_in_game.user.id] = this_users_players[0]
-            else:
-                self.userid_players.pop(player_in_game.user.id, None)
-                self.userid_current.pop(player_in_game.user.id, None)
+        for player in game.players:
+            self._drop_player(player)
 
         self._forget_game(game)
 
     def game_for_chat_topic(self, chat_id, thread_id):
         """Return the active Game for ``(chat_id, thread_id)`` or ``None``."""
-        return self.chatid_games.get((chat_id, thread_id))
+        return self.chatid_games.get(chat_id, dict()).get(thread_id)
+
+    def games_in_chat(self, chat_id):
+        """Return every active game in ``chat_id``, one per topic."""
+        return list(self.chatid_games.get(chat_id, dict()).values())
 
     def game_by_id(self, game_id):
         """Return the active Game with the given ``game.id`` or ``None``."""
@@ -231,7 +152,7 @@ class GameManager(object):
     def player_for_user_in_chat(self, user, chat, thread_id=None):
         """Return the ``Player`` for ``user`` in the ``(chat, thread_id)`` game.
 
-        Returns ``None`` if the user is not in that specific game — even if
+        Returns ``None`` if the user is not in that specific game, even if
         they are playing in a different topic of the same chat.
         """
         game = self.game_for_chat_topic(chat.id, thread_id)
@@ -244,21 +165,37 @@ class GameManager(object):
 
     # -- internal helpers -------------------------------------------------
 
-    def _games_in_chat(self, chat_id):
-        """Yield every active game whose chat matches ``chat_id``."""
-        for (cid, _tid), game in self.chatid_games.items():
-            if cid == chat_id:
-                yield game
+    def _drop_player(self, player):
+        """Remove ``player`` from the per-user indexes."""
+        user_id = player.user.id
+        players = self.userid_players.get(user_id, list())
+        try:
+            players.remove(player)
+        except ValueError:
+            pass
+
+        if self.userid_current.get(user_id) is player:
+            if players:
+                self.userid_current[user_id] = players[0]
+            else:
+                self.userid_current.pop(user_id, None)
+
+        if not players:
+            self.userid_players.pop(user_id, None)
 
     def _forget_game(self, game):
-        """Drop a game from all in-memory indexes and release its lock."""
-        key = (game.chat.id, game.thread_id)
-        self.chatid_games.pop(key, None)
+        """Drop a game from the game indexes and release its lock."""
+        topics = self.chatid_games.get(game.chat.id)
+        if topics is not None and topics.get(game.thread_id) is game:
+            del topics[game.thread_id]
+            if not topics:
+                del self.chatid_games[game.chat.id]
         self.games_by_id.pop(game.id, None)
 
         processor = self.update_processor
         if processor is not None:
             try:
-                processor.release_key(key)
+                processor.release_key((game.chat.id, game.thread_id))
             except Exception:  # pragma: no cover - defensive
-                self.logger.exception("Failed to release processor lock for %s", key)
+                self.logger.exception("Failed to release processor lock for %s",
+                                      game.id)

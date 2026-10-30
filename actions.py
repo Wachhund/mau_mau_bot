@@ -86,7 +86,7 @@ async def do_skip(bot, player, job_queue=None):
                        .format(name=display_name(skipped_player.user)),
                        message_thread_id=game.thread_id)
 
-            gm.end_game(chat, skipped_player.user)
+            gm.end_game(game)
 
 
 
@@ -142,7 +142,7 @@ async def do_play_card(bot, player, result_id):
                 if us2 and us2.stats:
                     us2.games_played += 1
 
-            gm.end_game(chat, user)
+            gm.end_game(game)
 
 
 async def do_draw(bot, player):

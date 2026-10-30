@@ -149,17 +149,9 @@ async def kill_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if await user_is_creator_or_admin(user, game, context.bot, chat):
-        try:
-            gm.end_game(chat, user)
-            await send_async(context.bot, chat.id, text=__("Game ended!", multi=game.translate),
-                       message_thread_id=game.thread_id)
-
-        except NoGameInChatError:
-            await send_async(context.bot, chat.id,
-                       text=_("The game is not started yet. "
-                              "Join the game with /join and start the game with /start"),
-                       reply_to_message_id=update.message.message_id,
-                       message_thread_id=game.thread_id)
+        gm.end_game(game)
+        await send_async(context.bot, chat.id, text=__("Game ended!", multi=game.translate),
+                   message_thread_id=game.thread_id)
 
     else:
         await send_async(context.bot, chat.id,
@@ -252,7 +244,7 @@ async def leave_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     except NotEnoughPlayersError:
-        gm.end_game(chat, user)
+        gm.end_game(game)
         await send_async(context.bot, chat.id, text=__("Game ended!", multi=game.translate),
                    message_thread_id=game.thread_id)
         return
@@ -317,7 +309,7 @@ async def kick_player(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
 
             except NotEnoughPlayersError:
-                gm.end_game(chat, user)
+                gm.end_game(game)
                 await send_async(context.bot, chat.id,
                                 text=_("{0} was kicked by {1}".format(display_name(kicked), display_name(user))),
                                 message_thread_id=game.thread_id)
@@ -351,39 +343,48 @@ async def kick_player(update: Update, context: ContextTypes.DEFAULT_TYPE):
                   message_thread_id=game.thread_id)
 
 
+def game_title(game):
+    """Chat title of a game, with the topic when it lives in one."""
+    if game.thread_id is None:
+        return game.chat.title
+    return _("{group} (topic {topic})").format(group=game.chat.title,
+                                               topic=game.thread_id)
+
+
+@user_locale
 async def select_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler for callback queries to select the current game"""
+    query = update.callback_query
+    user_id = query.from_user.id
 
-    try:
-        chat_id = int(update.callback_query.data)
-    except (ValueError, TypeError):
+    game = gm.game_by_id(query.data) if query.data else None
+    player = None
+    if game is not None:
+        for candidate in gm.userid_players.get(user_id, list()):
+            if candidate.game is game:
+                player = candidate
+                break
+
+    if player is None:
+        await context.bot.answer_callback_query(
+            query.id, text=_("Game not found."), show_alert=True)
         return
-    user_id = update.callback_query.from_user.id
-    players = gm.userid_players[user_id]
-    for player in players:
-        if player.game.chat.id == chat_id:
-            gm.userid_current[user_id] = player
-            break
-    else:
-        await send_async(context.bot,
-                   update.callback_query.message.chat_id,
-                   text=_("Game not found."))
-        return
+
+    gm.userid_current[user_id] = player
 
     back = [[InlineKeyboardButton(text=_("Back to last group"),
                                   switch_inline_query='')]]
     await context.bot.answer_callback_query(
-        update.callback_query.id,
+        query.id,
         text=_("Please switch to the group you selected!"),
         show_alert=False)
 
     await context.bot.edit_message_text(
-        chat_id=update.callback_query.message.chat_id,
-        message_id=update.callback_query.message.message_id,
+        chat_id=query.message.chat_id,
+        message_id=query.message.message_id,
         text=_("Selected group: {group}\n"
                "<b>Make sure that you switch to the correct "
-               "group!</b>").format(
-            group=gm.userid_current[user_id].game.chat.title),
+               "group!</b>").format(group=game_title(game)),
         reply_markup=InlineKeyboardMarkup(back),
         parse_mode=ParseMode.HTML)
 
@@ -404,7 +405,7 @@ async def status_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Snapshot all games the user is in, before they get removed
         affected = []
-        for game in list(gm._games_in_chat(chat.id)):
+        for game in gm.games_in_chat(chat.id):
             if any(p.user.id == user.id for p in game.players):
                 affected.append(game)
 
@@ -417,7 +418,7 @@ async def status_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except NoGameInChatError:
                 continue
             except NotEnoughPlayersError:
-                gm.end_game(chat, user)
+                gm.end_game(game)
                 await send_async(context.bot, chat.id,
                                  text=__("Game ended!", multi=game.translate),
                                  message_thread_id=game.thread_id)
@@ -484,18 +485,26 @@ async def start_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
             start_player_countdown(context.bot, game, context.job_queue)
 
     elif context.args and context.args[0] == 'select':
-        players = gm.userid_players[update.message.from_user.id]
+        user_id = update.message.from_user.id
+        players = gm.userid_players.get(user_id, list())
+
+        if not players:
+            await send_async(context.bot, update.message.chat_id,
+                       text=_('Not playing right now. Use /new to '
+                              'start a game or /join to join the '
+                              'current game in this group'))
+            return
 
         groups = list()
         for player in players:
-            title = player.game.chat.title
+            title = game_title(player.game)
 
-            if player == gm.userid_current[update.message.from_user.id]:
-                title = '- %s -' % player.game.chat.title
+            if player is gm.userid_current.get(user_id):
+                title = '- %s -' % title
 
             groups.append(
                 [InlineKeyboardButton(text=title,
-                                      callback_data=str(player.game.chat.id))]
+                                      callback_data=player.game.id)]
             )
 
         await send_async(context.bot, update.message.chat_id,

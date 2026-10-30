@@ -28,7 +28,7 @@ from errors import (AlreadyJoinedError, GameAlreadyRunningError,
 
 
 class Test(unittest.TestCase):
-    """Tests for the singleton (chat_id, thread_id) -> Game model."""
+    """One game per (chat_id, thread_id)."""
 
     def setUp(self):
         self.gm = GameManager()
@@ -41,17 +41,13 @@ class Test(unittest.TestCase):
         self.user1 = User(1, 'user1', is_bot=False)
         self.user2 = User(2, 'user2', is_bot=False)
 
-    # AC-3, AC-4: chatid_games is a (chat_id, thread_id) -> Game dict
     def test_new_game_stores_singleton_per_chat_topic(self):
         g0 = self.gm.new_game(self.chat0)
         g1 = self.gm.new_game(self.chat1)
 
-        self.assertIs(self.gm.chatid_games[(0, None)], g0)
-        self.assertIs(self.gm.chatid_games[(1, None)], g1)
+        self.assertIs(self.gm.game_for_chat_topic(0, None), g0)
+        self.assertIs(self.gm.game_for_chat_topic(1, None), g1)
 
-    # AC-1, AC-2: second new_game in the same (chat, topic) with a joined
-    # player raises. An empty stale lobby may be silently replaced (UX parity
-    # with the previous "remove old games without players" behaviour).
     def test_new_game_raises_when_topic_has_active_lobby(self):
         self.gm.new_game(self.chat0)
         self.gm.join_game(self.user0, self.chat0)
@@ -62,16 +58,15 @@ class Test(unittest.TestCase):
         first = self.gm.new_game(self.chat0)
         second = self.gm.new_game(self.chat0)
         self.assertIsNot(first, second)
-        self.assertIs(self.gm.chatid_games[(0, None)], second)
-        self.assertNotIn(first.id, self.gm.games_by_id)
+        self.assertIs(self.gm.game_for_chat_topic(0, None), second)
+        self.assertIsNone(self.gm.game_by_id(first.id))
 
-    # AC-1: same chat but different topics is allowed
     def test_new_game_allows_separate_topics_in_same_chat(self):
         g_main = self.gm.new_game(self.chat0)
         g_topic = self.gm.new_game(self.chat0, thread_id=42)
 
-        self.assertIs(self.gm.chatid_games[(0, None)], g_main)
-        self.assertIs(self.gm.chatid_games[(0, 42)], g_topic)
+        self.assertIs(self.gm.game_for_chat_topic(0, None), g_main)
+        self.assertIs(self.gm.game_for_chat_topic(0, 42), g_topic)
         self.assertIsNot(g_main, g_topic)
         self.assertEqual(g_topic.thread_id, 42)
 
@@ -84,13 +79,19 @@ class Test(unittest.TestCase):
         self.assertIsNone(self.gm.game_for_chat_topic(0, 999))
         self.assertIsNone(self.gm.game_for_chat_topic(99, None))
 
-    # AC-7: game_by_id resolves the game from a result_id prefix
+    def test_games_in_chat_lists_every_topic_of_that_chat_only(self):
+        g_main = self.gm.new_game(self.chat0)
+        g_topic = self.gm.new_game(self.chat0, thread_id=7)
+        self.gm.new_game(self.chat1)
+
+        self.assertCountEqual(self.gm.games_in_chat(0), [g_main, g_topic])
+        self.assertEqual(self.gm.games_in_chat(99), [])
+
     def test_game_by_id_resolves_game(self):
         g = self.gm.new_game(self.chat0)
         self.assertIs(self.gm.game_by_id(g.id), g)
         self.assertIsNone(self.gm.game_by_id('does-not-exist'))
 
-    # Joining still works through the (chat, topic) lookup
     def test_join_game(self):
         self.assertRaises(NoGameInChatError,
                           self.gm.join_game,
@@ -130,18 +131,64 @@ class Test(unittest.TestCase):
         self.assertRaises(NoGameInChatError,
                           self.gm.leave_game,
                           *(self.user0, self.chat0))
+        self.assertNotIn(self.user0.id, self.gm.userid_players)
+        self.assertNotIn(self.user0.id, self.gm.userid_current)
 
-    def test_end_game_clears_singleton(self):
-        self.gm.new_game(self.chat0)
+    def test_end_game_clears_game_and_players(self):
+        game = self.gm.new_game(self.chat0)
         self.gm.join_game(self.user0, self.chat0)
         self.gm.join_game(self.user1, self.chat0)
 
         self.assertEqual(len(self.gm.userid_players[0]), 1)
 
-        self.gm.end_game(self.chat0, self.user0)
-        self.assertNotIn((0, None), self.gm.chatid_games)
+        self.gm.end_game(game)
+        self.assertIsNone(self.gm.game_for_chat_topic(0, None))
+        self.assertIsNone(self.gm.game_by_id(game.id))
+        self.assertNotIn(0, self.gm.chatid_games)
         self.assertNotIn(0, self.gm.userid_players)
         self.assertNotIn(1, self.gm.userid_players)
+        self.assertNotIn(0, self.gm.userid_current)
+
+    def test_end_game_only_affects_its_topic(self):
+        g_main = self.gm.new_game(self.chat0)
+        g_topic = self.gm.new_game(self.chat0, thread_id=7)
+        self.gm.join_game(self.user0, self.chat0)
+        self.gm.join_game(self.user1, self.chat0)
+        self.gm.join_game(self.user0, self.chat0, thread_id=7)
+        self.gm.join_game(self.user2, self.chat0, thread_id=7)
+
+        self.gm.end_game(g_topic)
+
+        self.assertIs(self.gm.game_for_chat_topic(0, None), g_main)
+        self.assertIsNone(self.gm.game_for_chat_topic(0, 7))
+        self.assertEqual(len(self.gm.userid_players[0]), 1)
+        self.assertIs(self.gm.userid_current[0].game, g_main)
+        self.assertNotIn(2, self.gm.userid_players)
+
+    def test_end_game_keeps_current_selection_of_other_game(self):
+        g_main = self.gm.new_game(self.chat0)
+        g_other = self.gm.new_game(self.chat1)
+        self.gm.join_game(self.user0, self.chat1)
+        self.gm.join_game(self.user0, self.chat0)
+        self.gm.userid_current[0] = self.gm.player_for_user_in_chat(
+            self.user0, self.chat1)
+
+        self.gm.end_game(g_main)
+
+        self.assertIs(self.gm.userid_current[0].game, g_other)
+
+    def test_end_game_twice_is_harmless(self):
+        game = self.gm.new_game(self.chat0)
+        self.gm.join_game(self.user0, self.chat0)
+        self.gm.end_game(game)
+        self.gm.end_game(game)
+        self.assertNotIn(0, self.gm.chatid_games)
+
+    def test_end_game_does_not_remove_a_replacement_game(self):
+        old = self.gm.new_game(self.chat0)
+        new = self.gm.new_game(self.chat0)
+        self.gm.end_game(old)
+        self.assertIs(self.gm.game_for_chat_topic(0, None), new)
 
     def test_end_game_releases_processor_lock_when_registered(self):
         """end_game should call processor.release_key for cleanup."""
@@ -156,28 +203,13 @@ class Test(unittest.TestCase):
         g = self.gm.new_game(self.chat0, thread_id=11)
         self.gm.join_game(self.user0, self.chat0, thread_id=11)
         self.gm.join_game(self.user1, self.chat0, thread_id=11)
-        self.gm.end_game(self.chat0, self.user0)
+        self.gm.end_game(g)
 
         self.assertEqual(released, [(0, 11)])
 
-    def test_end_game_without_processor_does_not_crash(self):
-        # GameManager is still usable in test contexts without a processor
-        self.gm.new_game(self.chat0)
-        self.gm.join_game(self.user0, self.chat0)
-        self.gm.join_game(self.user1, self.chat0)
-        # Should not raise even though update_processor is None
-        self.gm.end_game(self.chat0, self.user0)
-
 
 class TestTopicIsolation(unittest.TestCase):
-    """Cross-topic correctness after the (chat, thread_id) singleton change.
-
-    These tests pin the regressions jh0ker flagged on PR #138:
-    - leave_game / player_for_user_in_chat must be topic-scoped
-    - join_game must not silently fall back to a game in a different topic
-    - status_update (left_chat_member) still needs a way to remove a user
-      from every game in the chat
-    """
+    """Cross-topic correctness of the (chat, thread_id) singleton model."""
 
     def setUp(self):
         self.gm = GameManager()
@@ -203,16 +235,13 @@ class TestTopicIsolation(unittest.TestCase):
         self.gm.join_game(self.user_c, self.chat, thread_id=7)
         # user_c is now in both games; currently active = topic (last join)
 
-    # jh0ker game_manager.py:83 — no cross-topic fallback in join_game
     def test_join_game_does_not_fall_back_across_topics(self):
         new_user = User(999, 'new', is_bot=False)
-        # Try to /join from a topic that has NO game
         with self.assertRaises(NoGameInChatError):
             self.gm.join_game(new_user, self.chat, thread_id=42)
         self.assertNotIn(new_user.id, self.gm.userid_players)
 
     def test_join_game_from_general_does_not_grab_topic_game(self):
-        # Fresh chat with ONLY a topic game — /join from General must fail
         gm2 = GameManager()
         chat = Chat(20, 'supergroup')
         gm2.new_game(chat, thread_id=5)
@@ -223,26 +252,22 @@ class TestTopicIsolation(unittest.TestCase):
             gm2.join_game(outsider, chat, thread_id=None)
         self.assertNotIn(outsider.id, gm2.userid_players)
 
-    # jh0ker game_manager.py:131 — leave_game must respect thread_id
     def test_leave_game_only_removes_from_specified_topic(self):
-        # user_c is in (10, None) AND (10, 7) — leave from topic only
         self.gm.leave_game(self.user_c, self.chat, thread_id=7)
 
         topic_user_ids = {p.user.id for p in self.game_topic.players}
         main_user_ids = {p.user.id for p in self.game_main.players}
 
-        self.assertNotIn(self.user_c.id, topic_user_ids,
-                         "user_c must leave the topic game")
-        self.assertIn(self.user_c.id, main_user_ids,
-                      "user_c must remain in the main game")
+        self.assertNotIn(self.user_c.id, topic_user_ids)
+        self.assertIn(self.user_c.id, main_user_ids)
+        self.assertIs(self.gm.userid_current[self.user_c.id].game,
+                      self.game_main)
 
     def test_leave_game_unknown_topic_raises(self):
         with self.assertRaises(NoGameInChatError):
             self.gm.leave_game(self.user_a, self.chat, thread_id=999)
 
-    # jh0ker game_manager.py:159 — player_for_user_in_chat must be topic-scoped
     def test_player_for_user_in_chat_resolves_specific_topic(self):
-        # user_c sits in BOTH games — ask for each topic separately
         p_main = self.gm.player_for_user_in_chat(self.user_c, self.chat,
                                                  thread_id=None)
         p_topic = self.gm.player_for_user_in_chat(self.user_c, self.chat,
@@ -258,27 +283,10 @@ class TestTopicIsolation(unittest.TestCase):
             self.gm.player_for_user_in_chat(self.user_a, self.chat,
                                              thread_id=999))
 
-    # New helper: status_update needs to remove a user from every game in chat
-    def test_leave_all_games_in_chat_clears_user_from_every_topic(self):
-        self.gm.leave_all_games_in_chat(self.user_c, self.chat)
-
-        main_ids = {p.user.id for p in self.game_main.players}
-        topic_ids = {p.user.id for p in self.game_topic.players}
-        self.assertNotIn(self.user_c.id, main_ids)
-        self.assertNotIn(self.user_c.id, topic_ids)
-
-    def test_leave_all_games_in_chat_is_noop_when_user_not_playing(self):
-        outsider = User(777, 'out', is_bot=False)
-        # Must not raise
-        self.gm.leave_all_games_in_chat(outsider, self.chat)
-
 
 class TestEndGameTaskReference(unittest.TestCase):
-    """jh0ker game_manager.py:167 — keep a strong reference to the
-    ``send_promotion`` task so it can't be garbage-collected mid-flight.
-
-    Reproduces the scenario described in the Python docs for
-    :func:`asyncio.create_task` (Important box)."""
+    """Keep a strong reference to the ``send_promotion`` task so it can't be
+    garbage-collected mid-flight."""
 
     def test_background_tasks_set_collects_scheduled_tasks(self):
         import asyncio
@@ -288,13 +296,11 @@ class TestEndGameTaskReference(unittest.TestCase):
         u1 = User(51, 'u1', is_bot=False)
 
         async def scenario():
-            gm.new_game(chat)
+            game = gm.new_game(chat)
             gm.join_game(u0, chat)
             gm.join_game(u1, chat)
-            gm.end_game(chat, u0)
-            # Strong reference must live in a manager-owned collection.
+            gm.end_game(game)
             assert hasattr(gm, '_background_tasks')
-            # Drain pending tasks so the test loop exits cleanly.
             pending = [t for t in gm._background_tasks if not t.done()]
             for t in pending:
                 t.cancel()
