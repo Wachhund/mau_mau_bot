@@ -29,7 +29,7 @@ from telegram.ext import InlineQueryHandler, ChosenInlineResultHandler, \
 import card as c
 import settings
 import simple_commands
-from actions import (do_call_bluff, do_draw, do_play_card, do_skip,
+from actions import (do_call_bluff, do_draw, do_play_card, do_skip, end_game,
                      is_action_allowed, start_player_countdown)
 from config import (DEFAULT_GAMEMODE, MIN_PLAYERS, STALE_GAME_TIMEOUT,
                     WAITING_TIME)
@@ -48,8 +48,9 @@ from simple_commands import help_handler
 from start_bot import start_bot
 from uno_update_processor import topic_id
 from utils import display_name
-from utils import (answer_async, error, game_is_running, safe_call,
-                   send_async, user_is_creator, user_is_creator_or_admin)
+from utils import (answer_async, drain_background_tasks, error,
+                   fire_and_forget, game_is_running, safe_call, send_async,
+                   user_is_creator, user_is_creator_or_admin)
 
 
 logger = logging.getLogger(__name__)
@@ -136,16 +137,10 @@ async def new_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
                               "End it with /kill before starting a new one."),
                        message_thread_id=thread_id)
             return
-        gm.end_game(existing)
+        end_game(existing)
         await send_async(context.bot, chat.id,
                    text=__("Game ended!", multi=existing.translate),
                    message_thread_id=thread_id)
-
-    # Collect reminders before locking (send after lock release)
-    remind_users = None
-    if chat.id in gm.remind_dict:
-        remind_users = list(gm.remind_dict[chat.id])
-        del gm.remind_dict[chat.id]
 
     try:
         game = gm.new_game(chat, thread_id=thread_id)
@@ -159,12 +154,12 @@ async def new_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     game.owner.append(user.id)
     game.mode = DEFAULT_GAMEMODE
 
-    if remind_users:
-        for user_id in remind_users:
-            await send_async(context.bot,
-                       user_id,
-                       text=_("A new game has been started in {title}").format(
-                            title=chat.title))
+    # Subscribers are told once the game exists. The DMs go out in the
+    # background so this handler does not hold the chat's lock for them.
+    reminder = _("A new game has been started in {title}").format(
+        title=chat.title)
+    for user_id in gm.remind_dict.pop(chat.id, ()):
+        fire_and_forget(send_async(context.bot, user_id, text=reminder))
 
     await send_async(context.bot, chat.id,
                text=_("Created a new game! Join the game with /join "
@@ -191,7 +186,7 @@ async def kill_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if await user_is_creator_or_admin(user, game, context.bot, chat):
-        gm.end_game(game)
+        end_game(game)
         await send_async(context.bot, chat.id, text=__("Game ended!", multi=game.translate),
                    message_thread_id=game.thread_id)
 
@@ -287,7 +282,7 @@ async def leave_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     except NotEnoughPlayersError:
-        gm.end_game(game)
+        end_game(game)
         await send_async(context.bot, chat.id, text=__("Game ended!", multi=game.translate),
                    message_thread_id=game.thread_id)
         return
@@ -358,7 +353,7 @@ async def kick_player(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
 
             except NotEnoughPlayersError:
-                gm.end_game(game)
+                end_game(game)
                 await send_async(context.bot, chat.id,
                                 text=_("{0} was kicked by {1}".format(display_name(kicked), display_name(user))),
                                 message_thread_id=game.thread_id)
@@ -479,7 +474,7 @@ async def remove_departed_player(context, game, user):
     except NoGameInChatError:
         return
     except NotEnoughPlayersError:
-        gm.end_game(game)
+        end_game(game)
         await send_async(context.bot, chat.id,
                          text=__("Game ended!", multi=game.translate),
                          message_thread_id=game.thread_id)
@@ -1016,6 +1011,7 @@ def main():
                                            status_update))
     application.add_error_handler(error)
     application.post_init = post_init
+    application.post_stop = drain_background_tasks
 
     start_bot(application)
 

@@ -18,6 +18,7 @@
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 
+import asyncio
 import logging
 import time
 
@@ -31,6 +32,41 @@ logger = logging.getLogger(__name__)
 
 _admin_cache = {}
 _admin_cache_timeout = 60 * 60
+
+_background_tasks: set[asyncio.Task] = set()
+
+
+def fire_and_forget(coro):
+    """Run a coroutine in the background and return its task.
+
+    Call it with any async function, just leave off the await. The task is
+    referenced until it finishes, and a failure is logged.
+
+    Example:
+        fire_and_forget(bot.send_message(chat_id, text="Hello!"))
+    """
+    task = asyncio.create_task(coro)
+    _background_tasks.add(task)
+    task.add_done_callback(_background_task_done)
+    return task
+
+
+def _background_task_done(task):
+    _background_tasks.discard(task)
+
+    if task.cancelled():
+        logger.warning("Background task %s was cancelled", task.get_name())
+        return
+
+    exc = task.exception()
+    if exc is not None:
+        logger.error("Background task failed", exc_info=exc)
+
+
+async def drain_background_tasks(application=None):
+    """Wait for the background tasks to finish. Wired as the Application's
+    post_stop callback, so pending sends complete before the bot shuts down."""
+    await asyncio.gather(*_background_tasks, return_exceptions=True)
 
 
 def list_subtract(list1, list2):

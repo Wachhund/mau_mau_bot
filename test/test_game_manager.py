@@ -264,31 +264,3 @@ class TestTopicIsolation(unittest.TestCase):
         self.assertIsNone(
             self.gm.player_for_user_in_chat(self.user_a, self.chat,
                                              thread_id=999))
-
-
-class TestEndGameTaskReference(unittest.TestCase):
-    """Keep a strong reference to the ``send_promotion`` task so it can't be
-    garbage-collected mid-flight."""
-
-    def test_background_tasks_set_collects_scheduled_tasks(self):
-        import asyncio
-        gm = GameManager()
-        chat = Chat(50, 'group')
-        u0 = User(50, 'u0', is_bot=False)
-        u1 = User(51, 'u1', is_bot=False)
-
-        async def scenario():
-            game = gm.new_game(chat)
-            gm.join_game(u0, chat)
-            gm.join_game(u1, chat)
-            gm.end_game(game)
-            assert hasattr(gm, '_background_tasks')
-            pending = [t for t in gm._background_tasks if not t.done()]
-            for t in pending:
-                t.cancel()
-            try:
-                await asyncio.gather(*pending, return_exceptions=True)
-            except Exception:
-                pass
-
-        asyncio.run(scenario())

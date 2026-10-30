@@ -173,6 +173,33 @@ async def test_timeout_zero_turns_idle_replacement_off(monkeypatch):
     assert gm.game_for_chat_topic(CHAT.id, None) is old
 
 
+@pytest.mark.asyncio
+async def test_refused_new_keeps_the_reminder_subscriptions():
+    _running_game()
+    gm.remind_dict[CHAT.id] = {7, 8}
+    context = _context()
+
+    await bot.new_game(_new_update(STRANGER), context)
+    await utils.drain_background_tasks()
+
+    assert gm.remind_dict[CHAT.id] == {7, 8}
+    assert all(chat_id == CHAT.id for chat_id, _ in context.bot.sent)
+
+
+@pytest.mark.asyncio
+async def test_successful_new_notifies_subscribers_in_the_background():
+    gm.remind_dict[CHAT.id] = {7, 8}
+    context = _context()
+
+    await bot.new_game(_new_update(CREATOR), context)
+    await utils.drain_background_tasks()
+
+    assert CHAT.id not in gm.remind_dict
+    notified = {chat_id for chat_id, text in context.bot.sent
+                if text.startswith('A new game has been started')}
+    assert notified == {7, 8}
+
+
 def test_turns_count_as_activity():
     game = _running_game(idle_seconds=1000)
     assert game.idle_seconds() >= 1000

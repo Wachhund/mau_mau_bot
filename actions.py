@@ -9,11 +9,19 @@ from config import TIME_REMOVAL_AFTER_SKIP, MIN_FAST_TURN_TIME
 from pony.orm import db_session
 from errors import DeckEmptyError, NotEnoughPlayersError
 from internationalization import __, game_locale_stack, locale_stack
+from promotions import send_promotion
 from shared_vars import gm
 from user_setting import UserSetting
-from utils import send_async, display_name, game_is_running
+from utils import display_name, fire_and_forget, game_is_running, send_async
 
 logger = logging.getLogger(__name__)
+
+
+def end_game(game):
+    """End the game and, now and then, advertise the other UNO bots."""
+    gm.end_game(game)
+    fire_and_forget(send_promotion(game.chat, chance=0.15,
+                                   message_thread_id=game.thread_id))
 
 
 class Countdown(object):
@@ -86,7 +94,7 @@ def do_skip(player):
     try:
         gm.leave_game(skipped_player.user, game.chat, thread_id=game.thread_id)
     except NotEnoughPlayersError:
-        gm.end_game(game)
+        end_game(game)
         logger.info("%s ran out of time, game ended",
                     display_name(skipped_player.user))
         return [__("{name} ran out of time "
@@ -149,7 +157,7 @@ def do_play_card(player, card_id):
                 if us2 and us2.stats:
                     us2.games_played += 1
 
-            gm.end_game(game)
+            end_game(game)
 
     return messages
 

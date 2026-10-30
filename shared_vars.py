@@ -20,7 +20,7 @@
 
 from config import TOKEN
 import os
-from telegram.ext import Application
+from telegram.ext import AIORateLimiter, Application
 
 from database import db
 from game_manager import GameManager
@@ -47,9 +47,13 @@ update_processor = UnoUpdateProcessor(
 
 _TIMEOUT = 2.5  # aggressive default, matches pre-v22 behaviour
 
+# The rate limiter queues requests to stay within Telegram's limits (30 per
+# second overall, 20 per minute per group), the job the WORKERS thread pool
+# used to do loosely.
 application = (Application.builder()
                .token(TOKEN)
                .concurrent_updates(update_processor)
+               .rate_limiter(AIORateLimiter())
                .read_timeout(_TIMEOUT)
                .write_timeout(_TIMEOUT)
                .connect_timeout(_TIMEOUT)

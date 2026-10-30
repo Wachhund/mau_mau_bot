@@ -7,5 +7,18 @@ database), so set the environment before any of them are imported.
 
 import os
 
+import pytest
+
 os.environ.setdefault("TOKEN", "1:test")
 os.environ.setdefault("UNO_DB", ":memory:")
+
+
+@pytest.fixture(autouse=True)
+def no_promotions(monkeypatch):
+    """Ending a game may advertise other bots; tests have no chat to send to."""
+    import actions
+
+    async def no_promotion(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(actions, "send_promotion", no_promotion)

@@ -32,7 +32,6 @@ TOKEN = os.getenv("TOKEN", config.get("token"))
 if not TOKEN:
     sys.exit("ERROR: Bot token is not configured. Set 'token' in config.json or TOKEN environment variable.")
 
-WORKERS = int(os.getenv("WORKERS", config.get("workers", 32)))
 ADMIN_LIST = os.getenv("ADMIN_LIST", config.get("admin_list", None))
 
 if isinstance(ADMIN_LIST, str):

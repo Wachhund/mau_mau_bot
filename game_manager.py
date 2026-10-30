@@ -18,7 +18,6 @@
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 
-import asyncio
 import logging
 
 from apscheduler.jobstores.base import JobLookupError
@@ -27,7 +26,6 @@ from game import Game
 from player import Player
 from errors import (AlreadyJoinedError, DeckEmptyError, GameAlreadyRunningError,
                     LobbyClosedError, NoGameInChatError, NotEnoughPlayersError)
-from promotions import send_promotion
 
 
 class GameManager(object):
@@ -35,7 +33,8 @@ class GameManager(object):
 
     Each ``(chat_id, thread_id)`` hosts at most one game. Every lookup takes an
     explicit ``thread_id``; there is no cross-topic fallback. Concurrency is
-    handled by :class:`uno_update_processor.UnoUpdateProcessor`, not here.
+    handled by :class:`uno_update_processor.UnoUpdateProcessor`, not here,
+    and nothing in here sends messages.
     """
 
     def __init__(self):
@@ -43,10 +42,7 @@ class GameManager(object):
         self.games_by_id = dict()         # game.id -> Game
         self.userid_players = dict()      # user_id -> [Player]
         self.userid_current = dict()      # user_id -> Player
-        self.remind_dict = dict()
-        # Strong references for fire-and-forget background tasks
-        # (asyncio docs: tasks may be GC'd mid-flight without a strong ref).
-        self._background_tasks = set()
+        self.remind_dict = dict()         # chat_id -> {user_id}
 
         self.logger = logging.getLogger(__name__)
 
@@ -121,17 +117,6 @@ class GameManager(object):
 
         Safe to call for a game that has already ended."""
         self.logger.info("Game %s in chat %s ended", game.id, game.chat.id)
-
-        try:
-            task = asyncio.get_running_loop().create_task(
-                send_promotion(game.chat, chance=0.15,
-                               message_thread_id=game.thread_id))
-            # Strong reference + self-removal on completion, per the asyncio
-            # docs (`create_task` Important box).
-            self._background_tasks.add(task)
-            task.add_done_callback(self._background_tasks.discard)
-        except RuntimeError:
-            pass
 
         for player in game.players:
             self._drop_player(player)
