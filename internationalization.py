@@ -37,16 +37,17 @@ _locale_stack: ContextVar[list] = ContextVar('locale_stack', default=[])
 class _Underscore(object):
     """Class to emulate flufl.i18n behaviour, but with plural support"""
     def __init__(self):
-        self.translators = {
-            locale: gettext.GNUTranslations(
-                open(gettext.find(
-                    GETTEXT_DOMAIN, GETTEXT_DIR, languages=[locale]
-                ), 'rb')
-            )
-            for locale
-            in available_locales.keys()
-            if locale != 'en_US'  # No translation file for en_US
-        }
+        # A locale without a compiled .mo file (e.g. a checkout where
+        # locales/compile.sh has not run) falls back to the untranslated text.
+        self.translators = {}
+        for locale in available_locales.keys():
+            if locale == 'en_US':  # No translation file for en_US
+                continue
+            path = gettext.find(GETTEXT_DOMAIN, GETTEXT_DIR, languages=[locale])
+            if path is None:
+                continue
+            with open(path, 'rb') as mo_file:
+                self.translators[locale] = gettext.GNUTranslations(mo_file)
 
     def push(self, locale):
         stack = _locale_stack.get([])

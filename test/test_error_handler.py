@@ -23,23 +23,8 @@
 ``NoneType: None`` instead of the real traceback."""
 
 import logging
-import os
-import sys
-import types
 
 import pytest
-
-# Stub config + DB env before importing utils (which pulls shared_vars)
-if 'config' not in sys.modules:
-    fake_config = types.ModuleType('config')
-    for k, v in [('TOKEN', '0:abc'), ('WORKERS', 0), ('ADMIN_LIST', []),
-                 ('OPEN_LOBBY', True), ('DEFAULT_GAMEMODE', 'classic'),
-                 ('ENABLE_TRANSLATIONS', False), ('WAITING_TIME', 90),
-                 ('MIN_PLAYERS', 2), ('TIME_REMOVAL_AFTER_SKIP', 20),
-                 ('MIN_FAST_TURN_TIME', 8), ('BOT_USERNAME', 'm')]:
-        setattr(fake_config, k, v)
-    sys.modules['config'] = fake_config
-os.environ.setdefault('UNO_DB', ':memory:')
 
 from utils import error
 

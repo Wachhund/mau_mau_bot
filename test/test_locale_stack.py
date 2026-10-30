@@ -19,26 +19,7 @@
 
 
 """Tests for ``internationalization.locale_stack`` (the real context manager,
-not the in-test replica used by ``test_locale.py``).
-
-``internationalization`` indirectly imports ``shared_vars`` which needs a
-valid bot token, so stub ``config`` before importing."""
-
-import os
-import sys
-import types
-
-# Stub config + DB env before any import of internationalization / shared_vars
-if 'config' not in sys.modules:
-    fake_config = types.ModuleType('config')
-    for k, v in [('TOKEN', '0:abc'), ('WORKERS', 0), ('ADMIN_LIST', []),
-                 ('OPEN_LOBBY', True), ('DEFAULT_GAMEMODE', 'classic'),
-                 ('ENABLE_TRANSLATIONS', False), ('WAITING_TIME', 90),
-                 ('MIN_PLAYERS', 2), ('TIME_REMOVAL_AFTER_SKIP', 20),
-                 ('MIN_FAST_TURN_TIME', 8), ('BOT_USERNAME', 'm')]:
-        setattr(fake_config, k, v)
-    sys.modules['config'] = fake_config
-os.environ.setdefault('UNO_DB', ':memory:')
+not the in-test replica used by ``test_locale.py``)."""
 
 from internationalization import _locale_stack, locale_stack, set_locale_stack
 

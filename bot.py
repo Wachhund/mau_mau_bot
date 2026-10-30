@@ -47,12 +47,7 @@ from utils import display_name
 from utils import send_async, answer_async, error, user_is_creator_or_admin, user_is_creator, game_is_running
 
 
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
 logger = logging.getLogger(__name__)
-logging.getLogger('apscheduler').setLevel(logging.WARNING)
 
 
 def get_thread_id(update):
@@ -877,30 +872,6 @@ async def reset_waiting_time(bot, player):
                          message_thread_id=game.thread_id)
 
 
-# Add all handlers to the application and run the bot
-application.add_handler(InlineQueryHandler(reply_to_query))
-application.add_handler(ChosenInlineResultHandler(process_result))
-application.add_handler(CallbackQueryHandler(select_game))
-application.add_handler(CommandHandler('start', start_game))
-application.add_handler(CommandHandler('new', new_game))
-application.add_handler(CommandHandler('kill', kill_game))
-application.add_handler(CommandHandler('join', join_game))
-application.add_handler(CommandHandler('leave', leave_game))
-application.add_handler(CommandHandler('kick', kick_player))
-application.add_handler(CommandHandler('open', open_game))
-application.add_handler(CommandHandler('close', close_game))
-application.add_handler(CommandHandler('enable_translations',
-                                      enable_translations))
-application.add_handler(CommandHandler('disable_translations',
-                                      disable_translations))
-application.add_handler(CommandHandler('skip', skip_player))
-application.add_handler(CommandHandler('notify_me', notify_me))
-simple_commands.register()
-settings.register()
-application.add_handler(MessageHandler(filters.StatusUpdate.LEFT_CHAT_MEMBER, status_update))
-application.add_error_handler(error)
-
-
 async def post_init(application):
     """Set bot commands and validate configuration on startup"""
     me = await application.bot.get_me()
@@ -928,6 +899,40 @@ async def post_init(application):
         BotCommand('news', 'All news about this bot'),
     ])
 
-application.post_init = post_init
 
-start_bot(application)
+def main():
+    logging.basicConfig(
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        level=logging.INFO
+    )
+    logging.getLogger('apscheduler').setLevel(logging.WARNING)
+
+    application.add_handler(InlineQueryHandler(reply_to_query))
+    application.add_handler(ChosenInlineResultHandler(process_result))
+    application.add_handler(CallbackQueryHandler(select_game))
+    application.add_handler(CommandHandler('start', start_game))
+    application.add_handler(CommandHandler('new', new_game))
+    application.add_handler(CommandHandler('kill', kill_game))
+    application.add_handler(CommandHandler('join', join_game))
+    application.add_handler(CommandHandler('leave', leave_game))
+    application.add_handler(CommandHandler('kick', kick_player))
+    application.add_handler(CommandHandler('open', open_game))
+    application.add_handler(CommandHandler('close', close_game))
+    application.add_handler(CommandHandler('enable_translations',
+                                           enable_translations))
+    application.add_handler(CommandHandler('disable_translations',
+                                           disable_translations))
+    application.add_handler(CommandHandler('skip', skip_player))
+    application.add_handler(CommandHandler('notify_me', notify_me))
+    simple_commands.register()
+    settings.register()
+    application.add_handler(MessageHandler(filters.StatusUpdate.LEFT_CHAT_MEMBER,
+                                           status_update))
+    application.add_error_handler(error)
+    application.post_init = post_init
+
+    start_bot(application)
+
+
+if __name__ == '__main__':
+    main()
