@@ -35,6 +35,19 @@ GameKey = Tuple[int, Optional[int]]
 GameResolver = Callable[[str], Optional[GameKey]]
 
 
+def topic_id(message) -> Optional[int]:
+    """The forum topic a message was sent in, or ``None``.
+
+    Telegram also fills ``message_thread_id`` for replies in ordinary
+    supergroups (the id of the reply thread), so the value only means a topic
+    when ``is_topic_message`` is set. Messages in a forum's General topic
+    carry neither and map to ``None`` like messages in a normal group.
+    """
+    if message is None or not message.is_topic_message:
+        return None
+    return message.message_thread_id
+
+
 class UnoUpdateProcessor(BaseUpdateProcessor):
     """Serializes updates that target the same (chat_id, thread_id).
 
@@ -77,7 +90,7 @@ class UnoUpdateProcessor(BaseUpdateProcessor):
         # CallbackQuery.message case in a single attribute lookup.
         msg = update.effective_message
         if msg is not None and msg.chat is not None:
-            return (msg.chat.id, msg.message_thread_id)
+            return (msg.chat.id, topic_id(msg))
 
         cir = update.chosen_inline_result
         if cir is not None and self._game_resolver is not None:

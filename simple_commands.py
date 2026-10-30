@@ -25,6 +25,7 @@ from pony.orm import db_session
 from user_setting import UserSetting
 from utils import send_async
 from shared_vars import application
+from uno_update_processor import topic_id
 from internationalization import _, user_locale
 from promotions import send_promotion
 
@@ -72,10 +73,10 @@ async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         help_text,
         parse_mode=ParseMode.HTML,
         disable_web_page_preview=True,
-        message_thread_id=update.message.message_thread_id,
+        message_thread_id=topic_id(update.message),
     )
     await send_promotion(update.effective_chat,
-                         message_thread_id=update.message.message_thread_id)
+                         message_thread_id=topic_id(update.message))
 
 @user_locale
 async def modes(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -89,7 +90,7 @@ async def modes(update: Update, context: ContextTypes.DEFAULT_TYPE):
       "just like when playing a card, and all gamemode options should appear.")
     await send_async(context.bot, update.message.chat_id, text=modes_explanation,
                parse_mode=ParseMode.HTML, disable_web_page_preview=True,
-               message_thread_id=update.message.message_thread_id)
+               message_thread_id=topic_id(update.message))
 
 @user_locale
 async def source(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -108,7 +109,7 @@ async def source(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_async(context.bot, update.message.chat_id, text=source_text + '\n' +
                                                  attributions,
                parse_mode=ParseMode.HTML, disable_web_page_preview=True,
-               message_thread_id=update.message.message_thread_id)
+               message_thread_id=topic_id(update.message))
 
 
 @user_locale
@@ -117,7 +118,7 @@ async def news(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_async(context.bot, update.message.chat_id,
                text=_("All news here: https://telegram.me/unobotnews"),
                disable_web_page_preview=True,
-               message_thread_id=update.message.message_thread_id)
+               message_thread_id=topic_id(update.message))
 
 
 @user_locale
@@ -137,7 +138,7 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_async(context.bot, update.message.chat_id,
                    text=_("You did not enable statistics. Use /settings in "
                           "a private chat with the bot to enable them."),
-                   message_thread_id=update.message.message_thread_id)
+                   message_thread_id=topic_id(update.message))
     else:
         stats_text = list()
 
@@ -165,7 +166,7 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await send_async(context.bot, update.message.chat_id,
                    text='\n'.join(stats_text),
-                   message_thread_id=update.message.message_thread_id)
+                   message_thread_id=topic_id(update.message))
 
 
 def register():

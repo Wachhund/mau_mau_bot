@@ -24,15 +24,24 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from uno_update_processor import UnoUpdateProcessor
+from uno_update_processor import UnoUpdateProcessor, topic_id
 
 
-def _make_message_update(chat_id, thread_id=None):
-    """Build a minimal Update-like object with .effective_message set."""
-    msg = SimpleNamespace(
+def _make_message(chat_id, thread_id=None, is_topic_message=None):
+    """Minimal Message-like object. A real topic message has both fields set;
+    a reply in an ordinary supergroup only has message_thread_id."""
+    if is_topic_message is None:
+        is_topic_message = thread_id is not None
+    return SimpleNamespace(
         chat=SimpleNamespace(id=chat_id),
         message_thread_id=thread_id,
+        is_topic_message=is_topic_message,
     )
+
+
+def _make_message_update(chat_id, thread_id=None, is_topic_message=None):
+    """Build a minimal Update-like object with .effective_message set."""
+    msg = _make_message(chat_id, thread_id, is_topic_message)
     return SimpleNamespace(
         message=msg,
         edited_message=None,
@@ -44,10 +53,7 @@ def _make_message_update(chat_id, thread_id=None):
 
 
 def _make_callback_update(chat_id, thread_id=None):
-    msg = SimpleNamespace(
-        chat=SimpleNamespace(id=chat_id),
-        message_thread_id=thread_id,
-    )
+    msg = _make_message(chat_id, thread_id)
     return SimpleNamespace(
         message=None,
         edited_message=None,
@@ -80,6 +86,24 @@ def _make_inline_query_update():
     )
 
 
+class TestTopicId:
+    """message_thread_id only names a topic when is_topic_message is set."""
+
+    def test_plain_message_has_no_topic(self):
+        assert topic_id(_make_message(1)) is None
+
+    def test_topic_message_returns_thread_id(self):
+        assert topic_id(_make_message(1, thread_id=42)) == 42
+
+    def test_reply_in_normal_group_is_not_a_topic(self):
+        # Telegram fills message_thread_id with the reply-thread id here.
+        msg = _make_message(1, thread_id=555, is_topic_message=False)
+        assert topic_id(msg) is None
+
+    def test_missing_message_has_no_topic(self):
+        assert topic_id(None) is None
+
+
 class TestKeyExtraction:
     """AC-11: _key_for_update returns correct (chat_id, thread_id) tuple."""
 
@@ -93,6 +117,11 @@ class TestKeyExtraction:
     def test_message_in_topic_returns_chat_thread(self):
         update = _make_message_update(chat_id=123, thread_id=42)
         assert self.proc._key_for_update(update) == (123, 42)
+
+    def test_reply_in_normal_group_keys_on_chat_only(self):
+        update = _make_message_update(chat_id=123, thread_id=555,
+                                      is_topic_message=False)
+        assert self.proc._key_for_update(update) == (123, None)
 
     def test_callback_query_returns_chat_thread(self):
         update = _make_callback_update(chat_id=999, thread_id=7)

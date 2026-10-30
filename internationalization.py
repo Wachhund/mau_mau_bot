@@ -27,6 +27,7 @@ from locales import available_locales
 from pony.orm import db_session
 from user_setting import UserSetting
 from shared_vars import gm
+from uno_update_processor import topic_id
 
 GETTEXT_DOMAIN = 'unobot'
 GETTEXT_DIR = 'locales'
@@ -176,8 +177,7 @@ def game_locales(func):
 def _user_chat_from_update(update):
     user = update.effective_user
     chat = update.effective_chat
-    msg = update.effective_message
-    thread_id = msg.message_thread_id if msg is not None else None
+    thread_id = topic_id(update.effective_message)
 
     if chat is None and user is not None and user.id in gm.userid_current:
         # Inline-query path: borrow the chat from the user's currently active

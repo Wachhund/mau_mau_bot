@@ -43,6 +43,7 @@ from results import (add_call_bluff, add_choose_color, add_draw, add_gameinfo,
 from shared_vars import gm, application
 from simple_commands import help_handler
 from start_bot import start_bot
+from uno_update_processor import topic_id
 from utils import display_name
 from utils import send_async, answer_async, error, user_is_creator_or_admin, user_is_creator, game_is_running
 
@@ -51,10 +52,8 @@ logger = logging.getLogger(__name__)
 
 
 def get_thread_id(update):
-    """Extract message_thread_id from an update, or None"""
-    if update.message:
-        return update.message.message_thread_id
-    return None
+    """The forum topic the update's message was sent in, or None."""
+    return topic_id(update.effective_message)
 
 
 def _game_in_chat(chat_id, thread_id):
