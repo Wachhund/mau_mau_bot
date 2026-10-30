@@ -153,6 +153,18 @@ def user_locale(func):
     return wrapped
 
 
+def game_locale_stack(game):
+    """The locales of a game's players, deduplicated, in seating order."""
+    locales = []
+    for game_player in game.players:
+        with db_session:
+            us = UserSetting.get(id=game_player.user.id)
+        loc = us.lang if (us and us.lang != 'en') else 'en_US'
+        if loc not in locales:
+            locales.append(loc)
+    return locales
+
+
 def game_locales(func):
     @wraps(func)
     async def wrapped(update, context, *pargs, **kwargs):
@@ -162,10 +174,7 @@ def game_locales(func):
 
         new_stack = list(_locale_stack.get([]))
         if player:
-            for game_player in player.game.players:
-                with db_session:
-                    us = UserSetting.get(id=game_player.user.id)
-                loc = us.lang if (us and us.lang != 'en') else 'en_US'
+            for loc in game_locale_stack(player.game):
                 if loc not in new_stack:
                     new_stack.append(loc)
 

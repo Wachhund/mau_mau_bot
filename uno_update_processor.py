@@ -22,6 +22,7 @@
 
 import asyncio
 import logging
+from contextlib import asynccontextmanager
 from typing import Awaitable, Callable, Optional, Tuple
 
 from telegram import Update
@@ -48,48 +49,63 @@ def topic_id(message) -> Optional[int]:
     return message.message_thread_id
 
 
+class _KeyLock:
+    """A lock plus the number of tasks holding or waiting for it."""
+
+    __slots__ = ('lock', 'users')
+
+    def __init__(self):
+        self.lock = asyncio.Lock()
+        self.users = 0
+
+
 class UnoUpdateProcessor(BaseUpdateProcessor):
     """Serializes updates that target the same (chat_id, thread_id).
 
     Inline queries and other updates without a derivable chat context run in
     parallel. ``ChosenInlineResult`` updates carry the game id in their
-    ``result_id`` (format: ``<game_id>:<base_id>:<anti_cheat>``); the optional
+    ``result_id`` (format: ``<game_id>:<base_id>:<anti_cheat>``); the
     ``game_resolver`` callback maps that game id back to a ``(chat_id,
-    thread_id)`` key.
+    thread_id)`` key. A service message about a member leaving concerns games
+    in every topic of the chat, so it runs unkeyed and the handler takes each
+    game's lock in turn via :meth:`serialized`.
     """
 
     def __init__(self, max_concurrent_updates: int,
                  game_resolver: Optional[GameResolver] = None):
         super().__init__(max_concurrent_updates=max_concurrent_updates)
-        self._locks: dict[GameKey, asyncio.Lock] = {}
+        self._locks: dict[GameKey, _KeyLock] = {}
         self._game_resolver = game_resolver
 
-    def lock_for_key(self, key: GameKey) -> asyncio.Lock:
-        """Return the ``asyncio.Lock`` for ``key``, creating one if needed.
+    @asynccontextmanager
+    async def serialized(self, key: GameKey):
+        """Run the block while holding the lock for ``key``.
 
-        Public so that background tasks (e.g. ``actions.skip_job`` fired by
-        the job queue) can serialise themselves against concurrent inline
-        updates targeting the same game.
+        Used by :meth:`do_process_update` and by code that runs outside the
+        update flow but touches a game, such as the job-queue skip timer. The
+        entry for a key exists only while a task holds or waits for it, so
+        ended games leave nothing behind and a task still inside the block can
+        never be joined by another task on a fresh lock for the same key.
         """
-        lock = self._locks.get(key)
-        if lock is None:
-            lock = asyncio.Lock()
-            self._locks[key] = lock
-        return lock
-
-    # Internal alias kept so existing call sites in ``do_process_update`` and
-    # the legacy test suite don't need to learn the new name.
-    _lock_for_key = lock_for_key
-
-    def release_key(self, key: GameKey) -> None:
-        """Drop the lock for a key once its game has ended."""
-        self._locks.pop(key, None)
+        entry = self._locks.get(key)
+        if entry is None:
+            entry = self._locks[key] = _KeyLock()
+        entry.users += 1
+        try:
+            async with entry.lock:
+                yield
+        finally:
+            entry.users -= 1
+            if entry.users == 0 and self._locks.get(key) is entry:
+                del self._locks[key]
 
     def _key_for_update(self, update) -> Optional[GameKey]:
         # update.effective_message covers Message, EditedMessage and the
         # CallbackQuery.message case in a single attribute lookup.
         msg = update.effective_message
         if msg is not None and msg.chat is not None:
+            if msg.left_chat_member is not None:
+                return None
             return (msg.chat.id, topic_id(msg))
 
         cir = update.chosen_inline_result
@@ -112,8 +128,7 @@ class UnoUpdateProcessor(BaseUpdateProcessor):
             await coroutine
             return
 
-        lock = self._lock_for_key(key)
-        async with lock:
+        async with self.serialized(key):
             await coroutine
 
     async def initialize(self) -> None:

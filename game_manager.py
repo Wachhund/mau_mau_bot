@@ -42,7 +42,6 @@ class GameManager(object):
         self.userid_players = dict()      # user_id -> [Player]
         self.userid_current = dict()      # user_id -> Player
         self.remind_dict = dict()
-        self.update_processor = None      # set by shared_vars after wiring
         # Strong references for fire-and-forget background tasks
         # (asyncio docs: tasks may be GC'd mid-flight without a strong ref).
         self._background_tasks = set()
@@ -184,18 +183,10 @@ class GameManager(object):
             self.userid_players.pop(user_id, None)
 
     def _forget_game(self, game):
-        """Drop a game from the game indexes and release its lock."""
+        """Drop a game from the game indexes."""
         topics = self.chatid_games.get(game.chat.id)
         if topics is not None and topics.get(game.thread_id) is game:
             del topics[game.thread_id]
             if not topics:
                 del self.chatid_games[game.chat.id]
         self.games_by_id.pop(game.id, None)
-
-        processor = self.update_processor
-        if processor is not None:
-            try:
-                processor.release_key((game.chat.id, game.thread_id))
-            except Exception:  # pragma: no cover - defensive
-                self.logger.exception("Failed to release processor lock for %s",
-                                      game.id)

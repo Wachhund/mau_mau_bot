@@ -27,7 +27,8 @@ import pytest
 from uno_update_processor import UnoUpdateProcessor, topic_id
 
 
-def _make_message(chat_id, thread_id=None, is_topic_message=None):
+def _make_message(chat_id, thread_id=None, is_topic_message=None,
+                  left_chat_member=None):
     """Minimal Message-like object. A real topic message has both fields set;
     a reply in an ordinary supergroup only has message_thread_id."""
     if is_topic_message is None:
@@ -36,12 +37,14 @@ def _make_message(chat_id, thread_id=None, is_topic_message=None):
         chat=SimpleNamespace(id=chat_id),
         message_thread_id=thread_id,
         is_topic_message=is_topic_message,
+        left_chat_member=left_chat_member,
     )
 
 
-def _make_message_update(chat_id, thread_id=None, is_topic_message=None):
+def _make_message_update(chat_id, thread_id=None, is_topic_message=None,
+                         left_chat_member=None):
     """Build a minimal Update-like object with .effective_message set."""
-    msg = _make_message(chat_id, thread_id, is_topic_message)
+    msg = _make_message(chat_id, thread_id, is_topic_message, left_chat_member)
     return SimpleNamespace(
         message=msg,
         edited_message=None,
@@ -122,6 +125,12 @@ class TestKeyExtraction:
         update = _make_message_update(chat_id=123, thread_id=555,
                                       is_topic_message=False)
         assert self.proc._key_for_update(update) == (123, None)
+
+    def test_left_chat_member_update_is_unkeyed(self):
+        # The handler locks each affected topic itself.
+        update = _make_message_update(
+            chat_id=123, left_chat_member=SimpleNamespace(id=5))
+        assert self.proc._key_for_update(update) is None
 
     def test_callback_query_returns_chat_thread(self):
         update = _make_callback_update(chat_id=999, thread_id=7)
@@ -256,36 +265,49 @@ class TestLifecycle:
         await proc.initialize()
         await proc.shutdown()
 
-    def test_release_key_removes_lock(self):
+    @pytest.mark.asyncio
+    async def test_lock_entry_exists_only_while_held(self):
         proc = UnoUpdateProcessor(max_concurrent_updates=4)
-        # populate via a sync access to lock dict
-        proc._lock_for_key((1, None))
-        assert (1, None) in proc._locks
-        proc.release_key((1, None))
+        async with proc.serialized((1, None)):
+            assert (1, None) in proc._locks
         assert (1, None) not in proc._locks
 
-    def test_release_unknown_key_is_noop(self):
+    @pytest.mark.asyncio
+    async def test_lock_entry_survives_until_the_last_waiter_leaves(self):
+        """A game ending inside one update must not hand a fresh lock to the
+        next update for the same key while the first one is still running."""
         proc = UnoUpdateProcessor(max_concurrent_updates=4)
-        proc.release_key((999, None))  # must not raise
+        key = (1, None)
+        first_inside = asyncio.Event()
+        second_started = asyncio.Event()
+        order = []
 
-    def test_lock_for_key_is_public_and_idempotent(self):
-        """Background tasks (job_queue) need a way to grab the same lock the
-        processor uses for inline updates of the same game."""
-        proc = UnoUpdateProcessor(max_concurrent_updates=4)
-        lock_a = proc.lock_for_key((1, None))
-        lock_b = proc.lock_for_key((1, None))
-        lock_c = proc.lock_for_key((1, 7))
-        assert lock_a is lock_b
-        assert lock_a is not lock_c
+        async def first():
+            async with proc.serialized(key):
+                first_inside.set()
+                await second_started.wait()
+                await asyncio.sleep(0.02)
+                order.append('first-done')
+                # Still inside: the entry must be the one the waiter uses.
+                assert proc._locks[key].users == 2
+
+        async def second():
+            await first_inside.wait()
+            second_started.set()
+            async with proc.serialized(key):
+                order.append('second-start')
+            assert key not in proc._locks
+
+        await asyncio.gather(first(), second())
+        assert order == ['first-done', 'second-start']
 
 
 class TestBackgroundTaskSerialization:
     """A job_queue callback must contend with concurrent inline updates for
-    the same game when it grabs ``lock_for_key``."""
+    the same game when it enters ``serialized``."""
 
     @pytest.mark.asyncio
     async def test_lock_serializes_background_task_with_update(self):
-        import asyncio
         proc = UnoUpdateProcessor(max_concurrent_updates=4)
         running = []
         peak = [0]
@@ -297,7 +319,7 @@ class TestBackgroundTaskSerialization:
             running.pop()
 
         async def background():
-            async with proc.lock_for_key((1, None)):
+            async with proc.serialized((1, None)):
                 await work()
 
         update = _make_message_update(chat_id=1)

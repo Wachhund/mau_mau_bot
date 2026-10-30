@@ -190,24 +190,6 @@ class Test(unittest.TestCase):
         self.gm.end_game(old)
         self.assertIs(self.gm.game_for_chat_topic(0, None), new)
 
-    def test_end_game_releases_processor_lock_when_registered(self):
-        """end_game should call processor.release_key for cleanup."""
-        released = []
-
-        class FakeProcessor:
-            def release_key(self, key):
-                released.append(key)
-
-        self.gm.update_processor = FakeProcessor()
-
-        g = self.gm.new_game(self.chat0, thread_id=11)
-        self.gm.join_game(self.user0, self.chat0, thread_id=11)
-        self.gm.join_game(self.user1, self.chat0, thread_id=11)
-        self.gm.end_game(g)
-
-        self.assertEqual(released, [(0, 11)])
-
-
 class TestTopicIsolation(unittest.TestCase):
     """Cross-topic correctness of the (chat, thread_id) singleton model."""
 

@@ -44,7 +44,6 @@ update_processor = UnoUpdateProcessor(
     max_concurrent_updates=256,
     game_resolver=_resolve_game_id,
 )
-gm.update_processor = update_processor
 
 _TIMEOUT = 2.5  # aggressive default, matches pre-v22 behaviour
 

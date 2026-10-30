@@ -33,14 +33,15 @@ from actions import do_skip, do_play_card, do_draw, do_call_bluff, start_player_
 from config import WAITING_TIME, DEFAULT_GAMEMODE, MIN_PLAYERS
 from errors import (AlreadyJoinedError, DeckEmptyError, GameAlreadyRunningError,
                     LobbyClosedError, NoGameInChatError, NotEnoughPlayersError)
-from internationalization import _, __, user_locale, game_locales
+from internationalization import (_, __, game_locale_stack, game_locales,
+                                  locale_stack, user_locale)
 from result_id import (PSEUDO_GAME_ID, decode_result_id, encode_results_list)
 from result_id_resolver import (DEAD_NO_CURRENT_GAME, DEAD_NOT_A_PLAYER,
                                 DEAD_UNKNOWN_GAME, resolve_result)
 from results import (add_call_bluff, add_choose_color, add_draw, add_gameinfo,
                      add_no_game, add_not_started, add_other_cards, add_pass,
                      add_card, add_mode_classic, add_mode_fast, add_mode_wild, add_mode_text)
-from shared_vars import gm, application
+from shared_vars import gm, application, update_processor
 from simple_commands import help_handler
 from start_bot import start_bot
 from uno_update_processor import topic_id
@@ -389,46 +390,58 @@ async def select_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode=ParseMode.HTML)
 
 
-@game_locales
 async def status_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Remove player from every game in the chat when they leave the group.
+    """Remove a user who left the group from every game in the chat.
 
-    The user may have been in several topic-bound games at once — Telegram
-    only tells us they left the group as a whole, not which topic they were
-    playing in, so we clean them out of every active game in the chat and
-    announce in each affected topic.
+    Telegram only says the user left the group, not which topics they were
+    playing in. The update processor runs this update without a key, so each
+    affected game is handled under its own lock, one game at a time.
     """
     chat = update.message.chat
+    user = update.message.left_chat_member
+    if user is None:
+        return
 
-    if update.message.left_chat_member:
-        user = update.message.left_chat_member
+    affected = [game for game in gm.games_in_chat(chat.id)
+                if any(p.user.id == user.id for p in game.players)]
 
-        # Snapshot all games the user is in, before they get removed
-        affected = []
-        for game in gm.games_in_chat(chat.id):
-            if any(p.user.id == user.id for p in game.players):
-                affected.append(game)
-
-        if not affected:
-            return
-
-        for game in affected:
-            try:
-                gm.leave_game(user, chat, thread_id=game.thread_id)
-            except NoGameInChatError:
+    for game in affected:
+        async with update_processor.serialized((chat.id, game.thread_id)):
+            # The game may have ended or been replaced while another topic
+            # was being handled.
+            if not game_is_running(game):
                 continue
-            except NotEnoughPlayersError:
-                gm.end_game(game)
-                await send_async(context.bot, chat.id,
-                                 text=__("Game ended!", multi=game.translate),
-                                 message_thread_id=game.thread_id)
-                continue
+            with locale_stack(game_locale_stack(game)):
+                await remove_departed_player(context, game, user)
 
-            await send_async(context.bot, chat.id,
-                             text=__("Removing {name} from the game",
-                                     multi=game.translate)
-                             .format(name=display_name(user)),
-                             message_thread_id=game.thread_id)
+
+async def remove_departed_player(context, game, user):
+    """Take ``user`` out of ``game`` and announce it. Runs under the game's lock."""
+    chat = game.chat
+    player = gm.player_for_user_in_chat(user, chat, thread_id=game.thread_id)
+    if player is None:
+        return
+    was_current = player is game.current_player
+
+    try:
+        gm.leave_game(user, chat, thread_id=game.thread_id)
+    except NoGameInChatError:
+        return
+    except NotEnoughPlayersError:
+        gm.end_game(game)
+        await send_async(context.bot, chat.id,
+                         text=__("Game ended!", multi=game.translate),
+                         message_thread_id=game.thread_id)
+        return
+
+    await send_async(context.bot, chat.id,
+                     text=__("Removing {name} from the game",
+                             multi=game.translate)
+                     .format(name=display_name(user)),
+                     message_thread_id=game.thread_id)
+
+    if game.started and was_current:
+        start_player_countdown(context.bot, game, context.job_queue)
 
 
 @game_locales

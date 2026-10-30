@@ -249,7 +249,7 @@ async def skip_job(context: ContextTypes.DEFAULT_TYPE):
     # Late-import to avoid circular imports at module load.
     from shared_vars import update_processor
     key = (game.chat.id, game.thread_id)
-    async with update_processor.lock_for_key(key):
+    async with update_processor.serialized(key):
         # Re-check inside the lock — the game may have ended while we waited.
         if not game_is_running(game):
             return
