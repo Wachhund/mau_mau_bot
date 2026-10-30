@@ -64,6 +64,7 @@ class Player(object):
         except DeckEmptyError:
             for card in self.cards:
                 self.game.deck.dismiss(card)
+            self.cards = list()
 
             raise
 

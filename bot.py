@@ -324,8 +324,11 @@ async def kick_player(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if await user_is_creator_or_admin(user, game, context.bot, chat):
 
-        if update.message.reply_to_message:
-            kicked = update.message.reply_to_message.from_user
+        reply = update.message.reply_to_message
+        # In a forum topic every plain message carries the topic's creation
+        # message as reply_to_message; that is not a reply to a player.
+        if reply is not None and reply.forum_topic_created is None:
+            kicked = reply.from_user
             kicked_player = gm.player_for_user_in_chat(kicked, chat,
                                                        thread_id=thread_id)
             was_current = kicked_player is game.current_player
@@ -700,6 +703,15 @@ async def skip_player(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     game = player.game
+
+    if not game.started:
+        await send_async(context.bot, chat.id,
+                   text=_("The game is not started yet. "
+                          "Join the game with /join and start the game with /start"),
+                   reply_to_message_id=update.message.message_id,
+                   message_thread_id=game.thread_id)
+        return
+
     skipped_player = game.current_player
 
     started = skipped_player.turn_started

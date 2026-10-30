@@ -21,6 +21,7 @@ RUN         --mount=type=cache,sharing=locked,target=/root/.cache,id=home-cache-
               gettext=${GETTEXT_VERSION} \
             && \
             pip install -r requirements.txt && \
+            mkdir -p /app/data && \
             chown -R nobody:nogroup /app
 
 COPY        --chown=nobody:nogroup . .

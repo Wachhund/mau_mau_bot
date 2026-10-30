@@ -40,20 +40,27 @@ def _resolve_game_id(game_id):
     return (game.chat.id, game.thread_id)
 
 
+# An update waiting for its chat's lock occupies one of these slots, so the
+# count is well above the number of chats expected to be busy at once;
+# otherwise a backlog in a few chats could stall inline queries, which only
+# need a slot.
 update_processor = UnoUpdateProcessor(
-    max_concurrent_updates=256,
+    max_concurrent_updates=2048,
     game_resolver=_resolve_game_id,
 )
 
 _TIMEOUT = 2.5  # aggressive default, matches pre-v22 behaviour
 
-# The rate limiter queues requests to stay within Telegram's limits (30 per
-# second overall, 20 per minute per group), the job the WORKERS thread pool
-# used to do loosely.
+# The rate limiter queues requests to stay within Telegram's bot-wide limit
+# (30 per second), which matters when /new notifies many subscribers at
+# once. The per-group limit (20 per minute) is left off: game messages are
+# sent while the game's lock is held, so queueing them would pace the game
+# itself. A group that exceeds the limit gets a 429 and loses that message,
+# as before the migration.
 application = (Application.builder()
                .token(TOKEN)
                .concurrent_updates(update_processor)
-               .rate_limiter(AIORateLimiter())
+               .rate_limiter(AIORateLimiter(group_max_rate=0))
                .read_timeout(_TIMEOUT)
                .write_timeout(_TIMEOUT)
                .connect_timeout(_TIMEOUT)

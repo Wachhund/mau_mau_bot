@@ -121,6 +121,9 @@ class UnoUpdateProcessor(BaseUpdateProcessor):
 
     async def do_process_update(self, update: Update,
                                 coroutine: Awaitable[None]) -> None:
+        # Runs inside the base class's concurrency slot, so an update waiting
+        # for a busy chat holds a slot while it waits. max_concurrent_updates
+        # is set generously for that reason (shared_vars.py).
         key = self._key_for_update(update)
         if key is None:
             await coroutine

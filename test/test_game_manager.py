@@ -115,6 +115,26 @@ class Test(unittest.TestCase):
                           self.gm.join_game,
                           *(self.user1, self.chat0))
 
+    def test_join_with_an_exhausted_deck_leaves_no_trace(self):
+        from errors import DeckEmptyError
+        game = self.gm.new_game(self.chat0)
+        game.mode = 'classic'
+        self.gm.join_game(self.user0, self.chat0)
+        self.gm.join_game(self.user1, self.chat0)
+        game.start()
+        for player in game.players:
+            player.draw_first_hand()
+        game.deck.cards = game.deck.cards[:3]
+        game.deck.graveyard = []
+
+        with self.assertRaises(DeckEmptyError):
+            self.gm.join_game(self.user2, self.chat0)
+
+        self.assertEqual(len(game.players), 2)
+        self.assertNotIn(self.user2.id, self.gm.userid_players)
+        # The three cards that were dealt are back exactly once.
+        self.assertEqual(len(game.deck.graveyard), 3)
+
     def test_leave_game(self):
         self.gm.new_game(self.chat0)
 

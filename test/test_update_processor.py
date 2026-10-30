@@ -192,8 +192,8 @@ class TestSerialization:
         await self.proc.initialize()
         try:
             await asyncio.gather(
-                self.proc.do_process_update(update1, coro()),
-                self.proc.do_process_update(update2, coro()),
+                self.proc.process_update(update1, coro()),
+                self.proc.process_update(update2, coro()),
             )
         finally:
             await self.proc.shutdown()
@@ -218,9 +218,9 @@ class TestSerialization:
         await self.proc.initialize()
         try:
             await asyncio.gather(
-                self.proc.do_process_update(update1, coro()),
-                self.proc.do_process_update(update2, coro()),
-                self.proc.do_process_update(update3, coro()),
+                self.proc.process_update(update1, coro()),
+                self.proc.process_update(update2, coro()),
+                self.proc.process_update(update3, coro()),
             )
         finally:
             await self.proc.shutdown()
@@ -246,9 +246,9 @@ class TestSerialization:
         await self.proc.initialize()
         try:
             await asyncio.gather(
-                self.proc.do_process_update(update_a, inline_coro()),
-                self.proc.do_process_update(update_b, inline_coro()),
-                self.proc.do_process_update(update_c, inline_coro()),
+                self.proc.process_update(update_a, inline_coro()),
+                self.proc.process_update(update_b, inline_coro()),
+                self.proc.process_update(update_c, inline_coro()),
             )
         finally:
             await self.proc.shutdown()
@@ -327,7 +327,7 @@ class TestBackgroundTaskSerialization:
         await proc.initialize()
         try:
             await asyncio.gather(
-                proc.do_process_update(update, work()),
+                proc.process_update(update, work()),
                 background(),
             )
         finally:
