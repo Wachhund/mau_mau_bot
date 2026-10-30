@@ -26,6 +26,7 @@ from functools import wraps
 from locales import available_locales
 from pony.orm import db_session
 from user_setting import UserSetting
+from result_id import PSEUDO_GAME_ID, decode_result_id
 from shared_vars import gm
 from uno_update_processor import topic_id
 
@@ -190,11 +191,26 @@ def _user_chat_from_update(update):
     chat = update.effective_chat
     thread_id = topic_id(update.effective_message)
 
-    if chat is None and user is not None and user.id in gm.userid_current:
-        # Inline-query path: borrow the chat from the user's currently active
-        # game so that the locale decorators have something to work with.
-        current_game = gm.userid_current[user.id].game
-        chat = current_game.chat
-        thread_id = current_game.thread_id
+    if chat is None and user is not None:
+        # Inline updates carry no chat; borrow it from the game they concern.
+        game = _game_for_inline_update(update, user)
+        if game is not None:
+            chat = game.chat
+            thread_id = game.thread_id
 
     return user, chat, thread_id
+
+
+def _game_for_inline_update(update, user):
+    """A chosen result names its game in the result id; an inline query (or
+    a result without a game) refers to the game the user selected."""
+    chosen = update.chosen_inline_result
+    if chosen is not None:
+        decoded = decode_result_id(chosen.result_id)
+        if decoded is not None and decoded.game_id != PSEUDO_GAME_ID:
+            game = gm.game_by_id(decoded.game_id)
+            if game is not None:
+                return game
+
+    player = gm.userid_current.get(user.id)
+    return player.game if player is not None else None

@@ -274,6 +274,29 @@ async def test_bluff_call_against_a_real_bluff_returns_the_cards():
     assert context.bot.sent[0].startswith('Bluff called!')
 
 
+def test_chosen_result_is_attributed_to_the_game_in_its_result_id():
+    """Locales come from the game the result belongs to, even when the user
+    has selected a different game for inline queries."""
+    from internationalization import _user_chat_from_update
+    user = _user(1)
+    gm.new_game(CHAT)
+    gm.join_game(user, CHAT)
+    other_chat = Chat(21, 'supergroup', title='Other')
+    gm.new_game(other_chat, thread_id=7)
+    gm.join_game(user, other_chat, thread_id=7)
+    gm.userid_current[user.id] = gm.player_for_user_in_chat(user, CHAT)
+    player_b = gm.player_for_user_in_chat(user, other_chat, thread_id=7)
+
+    _, chat, thread_id = _user_chat_from_update(
+        _chosen(user, _result(player_b, 'draw')))
+    assert chat is other_chat
+    assert thread_id == 7
+
+    # A result without a game, and a plain inline query, use the selection.
+    assert _user_chat_from_update(_chosen(user, 'none:nogame:0'))[1] is CHAT
+    assert _user_chat_from_update(_inline_query(user))[1] is CHAT
+
+
 @pytest.mark.asyncio
 async def test_inline_list_offers_no_draw_to_the_next_player_during_colour_choice():
     game = _started_game(_user(1), _user(2), _user(3))
