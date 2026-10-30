@@ -1,23 +1,20 @@
-import random
-
 import logging
 
 import card as c
-from datetime import datetime
 
-from telegram import Message, Chat
 from telegram.ext import ContextTypes
 from apscheduler.jobstores.base import JobLookupError
 
 from config import TIME_REMOVAL_AFTER_SKIP, MIN_FAST_TURN_TIME
 from pony.orm import db_session
 from errors import DeckEmptyError, NotEnoughPlayersError
-from internationalization import __, _, locale_stack
+from internationalization import __, locale_stack
 from shared_vars import gm
 from user_setting import UserSetting
 from utils import send_async, display_name, game_is_running
 
 logger = logging.getLogger(__name__)
+
 
 class Countdown(object):
     player = None
@@ -30,18 +27,47 @@ class Countdown(object):
         self.locales = locales or []
 
 
-# Per-(chat, thread) serialization is owned by UnoUpdateProcessor; callers
-# do not need to hold any lock.
-async def do_skip(bot, player, job_queue=None):
+# Game actions change the game state synchronously and return the messages
+# to send, so no inline query can observe a half-applied move. Callers run
+# under the game's lock (UnoUpdateProcessor) and send the messages afterwards.
+
+
+def is_action_allowed(game, player, action):
+    """Whether ``action`` (the base id of an inline result) is a legal move
+    for ``player`` right now.
+
+    Mirrors the options ``reply_to_query`` offers, so a stale result list
+    (cached by the client, or fetched while a move was in flight) cannot act
+    out of turn or repeat a move.
+    """
+    if not game.started or player is not game.current_player:
+        return False
+    if action in c.COLORS:
+        return game.choosing_color
+    if game.choosing_color:
+        return False
+    if action == 'draw':
+        return not player.drew
+    if action == 'pass':
+        return player.drew
+    if action == 'call_bluff':
+        return game.last_card.special == c.DRAW_FOUR and game.draw_counter > 0
+    try:
+        card = c.from_str(action)
+    except ValueError:
+        return False
+    return card in player.playable_cards()
+
+
+def do_skip(player):
+    """Skip the current player of ``player``'s game. Returns the messages."""
     game = player.game
-    chat = game.chat
     skipped_player = game.current_player
-    next_player = game.current_player.next
 
     if skipped_player.waiting_time > 0:
         skipped_player.anti_cheat += 1
         skipped_player.waiting_time -= TIME_REMOVAL_AFTER_SKIP
-        if (skipped_player.waiting_time < 0):
+        if skipped_player.waiting_time < 0:
             skipped_player.waiting_time = 0
 
         try:
@@ -49,54 +75,41 @@ async def do_skip(bot, player, job_queue=None):
         except DeckEmptyError:
             pass
 
-        n = skipped_player.waiting_time
-        await send_async(bot, chat.id,
-                   text=__("Waiting time to skip this player has "
-                        "been reduced to {time} seconds.\n"
-                        "Next player: {name}", multi=game.translate)
-                   .format(time=n,
-                           name=display_name(next_player.user)),
-                   message_thread_id=game.thread_id)
-        logger.info("{player} was skipped! "
-                    .format(player=display_name(player.user)))
         game.turn()
-        if job_queue:
-            start_player_countdown(bot, game, job_queue)
+        logger.info("%s was skipped!", display_name(skipped_player.user))
+        return [__("Waiting time to skip this player has "
+                   "been reduced to {time} seconds.\n"
+                   "Next player: {name}", multi=game.translate)
+                .format(time=skipped_player.waiting_time,
+                        name=display_name(game.current_player.user))]
 
-    else:
-        try:
-            gm.leave_game(skipped_player.user, chat, thread_id=game.thread_id)
-            await send_async(bot, chat.id,
-                       text=__("{name1} ran out of time "
-                            "and has been removed from the game!\n"
-                            "Next player: {name2}", multi=game.translate)
-                       .format(name1=display_name(skipped_player.user),
-                               name2=display_name(next_player.user)),
-                       message_thread_id=game.thread_id)
-            logger.info("{player} was skipped! "
-                    .format(player=display_name(player.user)))
-            if job_queue:
-                start_player_countdown(bot, game, job_queue)
+    try:
+        gm.leave_game(skipped_player.user, game.chat, thread_id=game.thread_id)
+    except NotEnoughPlayersError:
+        gm.end_game(game)
+        logger.info("%s ran out of time, game ended",
+                    display_name(skipped_player.user))
+        return [__("{name} ran out of time "
+                   "and has been removed from the game!\n"
+                   "The game ended.", multi=game.translate)
+                .format(name=display_name(skipped_player.user))]
 
-        except NotEnoughPlayersError:
-            await send_async(bot, chat.id,
-                       text=__("{name} ran out of time "
-                               "and has been removed from the game!\n"
-                               "The game ended.", multi=game.translate)
-                       .format(name=display_name(skipped_player.user)),
-                       message_thread_id=game.thread_id)
-
-            gm.end_game(game)
+    logger.info("%s ran out of time and was removed",
+                display_name(skipped_player.user))
+    return [__("{name1} ran out of time "
+               "and has been removed from the game!\n"
+               "Next player: {name2}", multi=game.translate)
+            .format(name1=display_name(skipped_player.user),
+                    name2=display_name(game.current_player.user))]
 
 
-
-async def do_play_card(bot, player, result_id):
-    """Plays the selected card and sends an update to the group if needed"""
-    card = c.from_str(result_id)
+def do_play_card(player, card_id):
+    """Play the selected card. Returns the messages to send."""
+    card = c.from_str(card_id)
     player.play(card)
     game = player.game
-    chat = game.chat
     user = player.user
+    messages = []
 
     with db_session:
         us = UserSetting.get(id=user.id)
@@ -107,18 +120,14 @@ async def do_play_card(bot, player, result_id):
             us.cards_played += 1
 
     if game.choosing_color:
-        await send_async(bot, chat.id, text=__("Please choose a color", multi=game.translate),
-                   message_thread_id=game.thread_id)
+        messages.append(__("Please choose a color", multi=game.translate))
 
     if len(player.cards) == 1:
-        await send_async(bot, chat.id, text="UNO!",
-                   message_thread_id=game.thread_id)
+        messages.append("UNO!")
 
     if len(player.cards) == 0:
-        await send_async(bot, chat.id,
-                   text=__("{name} won!", multi=game.translate)
-                   .format(name=user.first_name),
-                   message_thread_id=game.thread_id)
+        messages.append(__("{name} won!", multi=game.translate)
+                        .format(name=user.first_name))
 
         with db_session:
             us = UserSetting.get(id=user.id)
@@ -131,11 +140,9 @@ async def do_play_card(bot, player, result_id):
         game.players_won += 1
 
         try:
-            gm.leave_game(user, chat, thread_id=game.thread_id)
+            gm.leave_game(user, game.chat, thread_id=game.thread_id)
         except NotEnoughPlayersError:
-            await send_async(bot, chat.id,
-                       text=__("Game ended!", multi=game.translate),
-                       message_thread_id=game.thread_id)
+            messages.append(__("Game ended!", multi=game.translate))
 
             with db_session:
                 us2 = UserSetting.get(id=game.current_player.user.id)
@@ -144,66 +151,62 @@ async def do_play_card(bot, player, result_id):
 
             gm.end_game(game)
 
+    return messages
 
-async def do_draw(bot, player):
-    """Does the drawing"""
+
+def do_draw(player):
+    """Draw for the player. Returns the messages to send."""
     game = player.game
     draw_counter_before = game.draw_counter
+    messages = []
 
     try:
         player.draw()
     except DeckEmptyError:
-        await send_async(bot, player.game.chat.id,
-                   text=__("There are no more cards in the deck.",
-                           multi=game.translate),
-                   message_thread_id=game.thread_id)
+        messages.append(__("There are no more cards in the deck.",
+                           multi=game.translate))
 
     if (game.last_card.value == c.DRAW_TWO or
         game.last_card.special == c.DRAW_FOUR) and \
             draw_counter_before > 0:
         game.turn()
 
+    return messages
 
-async def do_call_bluff(bot, player):
-    """Handles the bluff calling"""
+
+def do_call_bluff(player):
+    """Resolve a bluff call against the previous player. Returns the messages."""
     game = player.game
-    chat = game.chat
+    messages = []
 
     if player.prev.bluffing:
-        await send_async(bot, chat.id,
-                   text=__("Bluff called! Giving 4 cards to {name}",
+        messages.append(__("Bluff called! Giving 4 cards to {name}",
                            multi=game.translate)
-                   .format(name=player.prev.user.first_name),
-                   message_thread_id=game.thread_id)
+                        .format(name=player.prev.user.first_name))
 
         try:
             player.prev.draw()
         except DeckEmptyError:
-            await send_async(bot, player.game.chat.id,
-                       text=__("There are no more cards in the deck.",
-                               multi=game.translate),
-                       message_thread_id=game.thread_id)
+            messages.append(__("There are no more cards in the deck.",
+                               multi=game.translate))
 
     else:
         game.draw_counter += 2
-        await send_async(bot, chat.id,
-                   text=__("{name1} didn't bluff! Giving 6 cards to {name2}",
+        messages.append(__("{name1} didn't bluff! Giving 6 cards to {name2}",
                            multi=game.translate)
-                   .format(name1=player.prev.user.first_name,
-                           name2=player.user.first_name),
-                   message_thread_id=game.thread_id)
+                        .format(name1=player.prev.user.first_name,
+                                name2=player.user.first_name))
         try:
             player.draw()
         except DeckEmptyError:
-            await send_async(bot, player.game.chat.id,
-                       text=__("There are no more cards in the deck.",
-                               multi=game.translate),
-                       message_thread_id=game.thread_id)
+            messages.append(__("There are no more cards in the deck.",
+                               multi=game.translate))
 
     game.turn()
+    return messages
 
 
-def start_player_countdown(bot, game, job_queue):
+def start_player_countdown(game, job_queue):
     player = game.current_player
     time = player.waiting_time
 
@@ -234,24 +237,21 @@ def start_player_countdown(bot, game, job_queue):
 async def skip_job(context: ContextTypes.DEFAULT_TYPE):
     """Job-queue callback fired when a player's turn timer elapses.
 
-    Runs outside the :class:`UnoUpdateProcessor`'s normal dispatch path, so
-    we have to acquire the same per-``(chat, thread_id)`` lock manually to
-    avoid racing with an inline update that the user might still send right
-    before the timer fires.
+    Runs outside the update flow, so it takes the game's lock itself.
     """
     player = context.job.data.player
     game = player.game
-    if not game_is_running(game):
-        return
-
     job_queue = context.job.data.job_queue
 
-    # Late-import to avoid circular imports at module load.
+    # Late import to avoid an import cycle at module load.
     from shared_vars import update_processor
-    key = (game.chat.id, game.thread_id)
-    async with update_processor.serialized(key):
-        # Re-check inside the lock — the game may have ended while we waited.
+    async with update_processor.serialized((game.chat.id, game.thread_id)):
         if not game_is_running(game):
             return
         with locale_stack(context.job.data.locales):
-            await do_skip(context.bot, player, job_queue)
+            messages = do_skip(player)
+            if game_is_running(game):
+                start_player_countdown(game, job_queue)
+            for text in messages:
+                await send_async(context.bot, game.chat.id, text=text,
+                                 message_thread_id=game.thread_id)

@@ -29,7 +29,8 @@ from telegram.ext import InlineQueryHandler, ChosenInlineResultHandler, \
 import card as c
 import settings
 import simple_commands
-from actions import do_skip, do_play_card, do_draw, do_call_bluff, start_player_countdown
+from actions import (do_call_bluff, do_draw, do_play_card, do_skip,
+                     is_action_allowed, start_player_countdown)
 from config import WAITING_TIME, DEFAULT_GAMEMODE, MIN_PLAYERS
 from errors import (AlreadyJoinedError, DeckEmptyError, GameAlreadyRunningError,
                     LobbyClosedError, NoGameInChatError, NotEnoughPlayersError)
@@ -52,9 +53,19 @@ from utils import send_async, answer_async, error, user_is_creator_or_admin, use
 logger = logging.getLogger(__name__)
 
 
+GAME_MODES = ('classic', 'fast', 'wild', 'text')
+
+
 def get_thread_id(update):
     """The forum topic the update's message was sent in, or None."""
     return topic_id(update.effective_message)
+
+
+async def announce(bot, game, messages):
+    """Send messages to the game's chat and topic, in order."""
+    for text in messages:
+        await send_async(bot, game.chat.id, text=text,
+                         message_thread_id=game.thread_id)
 
 
 def _game_in_chat(chat_id, thread_id):
@@ -441,7 +452,7 @@ async def remove_departed_player(context, game, user):
                      message_thread_id=game.thread_id)
 
     if game.started and was_current:
-        start_player_countdown(context.bot, game, context.job_queue)
+        start_player_countdown(game, context.job_queue)
 
 
 @game_locales
@@ -495,7 +506,7 @@ async def start_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             reply_markup=InlineKeyboardMarkup(choice),
                             message_thread_id=game.thread_id)
 
-            start_player_countdown(context.bot, game, context.job_queue)
+            start_player_countdown(game, context.job_queue)
 
     elif context.args and context.args[0] == 'select':
         user_id = update.message.from_user.id
@@ -682,7 +693,10 @@ async def skip_player(update: Update, context: ContextTypes.DEFAULT_TYPE):
                    reply_to_message_id=update.message.message_id,
                    message_thread_id=game.thread_id)
     else:
-        await do_skip(context.bot, player)
+        messages = do_skip(player)
+        if game_is_running(game):
+            start_player_countdown(game, context.job_queue)
+        await announce(context.bot, game, messages)
 
 
 @game_locales
@@ -749,11 +763,7 @@ async def reply_to_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 add_gameinfo(game, results)
 
         elif user_id != game.current_player.user.id:
-            # Not the current player — show cards as not playable.
-            # Defensive: if draw_counter > 0 and this player is next,
-            # the turn may still be transitioning — show draw option.
-            if game.draw_counter and game.current_player.next.user.id == user_id:
-                add_draw(player, results)
+            # Not the current player: show the hand, nothing playable.
             for card in sorted(player.cards):
                 add_card(game, card, results, can_play=False)
 
@@ -833,7 +843,8 @@ async def process_result(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if base_id.startswith('mode_'):
         mode = base_id[5:]
-        if mode not in ('classic', 'fast', 'wild', 'text'):
+        if (mode not in GAME_MODES or game.started
+                or not user_is_creator(user, game)):
             return
         game.set_mode(mode)
         logger.info("Gamemode changed to {mode}".format(mode=mode))
@@ -851,23 +862,38 @@ async def process_result(update: Update, context: ContextTypes.DEFAULT_TYPE):
                          message_thread_id=game.thread_id)
         return
 
+    if not is_action_allowed(game, player, base_id):
+        # A result list the client cached, or a move that already happened.
+        logger.info("Ignoring %s by %s: not a legal move right now",
+                    base_id, display_name(user))
+        return
+
     player.anti_cheat += 1
 
+    # Apply the whole move before the first await, so no inline query can
+    # see a half-applied game state.
+    messages = []
     if base_id == 'call_bluff':
-        await reset_waiting_time(context.bot, player)
-        await do_call_bluff(context.bot, player)
+        messages += reset_waiting_time(player)
+        messages += do_call_bluff(player)
     elif base_id == 'draw':
-        await reset_waiting_time(context.bot, player)
-        await do_draw(context.bot, player)
+        messages += reset_waiting_time(player)
+        messages += do_draw(player)
     elif base_id == 'pass':
         game.turn()
     elif base_id in c.COLORS:
         game.choose_color(base_id)
     else:
-        await reset_waiting_time(context.bot, player)
-        await do_play_card(context.bot, player, base_id)
+        messages += reset_waiting_time(player)
+        messages += do_play_card(player, base_id)
 
-    if game_is_running(game):
+    running = game_is_running(game)
+    if running:
+        start_player_countdown(game, context.job_queue)
+
+    await announce(context.bot, game, messages)
+
+    if running:
         nextplayer_message = (
             __("Next player: {name}", multi=game.translate)
             .format(name=display_name(game.current_player.user)))
@@ -876,21 +902,17 @@ async def process_result(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         text=nextplayer_message,
                         reply_markup=InlineKeyboardMarkup(choice),
                         message_thread_id=game.thread_id)
-        start_player_countdown(context.bot, game, context.job_queue)
 
 
-async def reset_waiting_time(bot, player):
-    """Resets waiting time for a player and notifies the chat."""
-    if player.waiting_time < WAITING_TIME:
-        player.waiting_time = WAITING_TIME
-        game = player.game
-        await send_async(bot, game.chat.id,
-                         text=__("Waiting time for {name} has been reset to "
-                                 "{time} seconds",
-                                 multi=game.translate)
-                         .format(name=display_name(player.user),
-                                 time=WAITING_TIME),
-                         message_thread_id=game.thread_id)
+def reset_waiting_time(player):
+    """Reset a player's skip timer. Returns the notice to send, if any."""
+    if player.waiting_time >= WAITING_TIME:
+        return []
+    player.waiting_time = WAITING_TIME
+    game = player.game
+    return [__("Waiting time for {name} has been reset to "
+               "{time} seconds", multi=game.translate)
+            .format(name=display_name(player.user), time=WAITING_TIME)]
 
 
 async def post_init(application):

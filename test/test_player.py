@@ -151,17 +151,22 @@ class Test(unittest.TestCase):
                    c.Card(None, None, c.DRAW_FOUR),
                    c.Card(None, None, c.CHOOSE)]
 
+        # Listing the playable cards does not touch the bluff flag.
+        p.bluffing = False
         p.playable_cards()
+        self.assertFalse(p.bluffing)
+
+        # Playing a +4 while holding the current color is a bluff.
+        p.play(c.Card(None, None, c.DRAW_FOUR))
         self.assertTrue(p.bluffing)
 
+        self.game.last_card = c.Card(c.RED, '1')
+        self.game.draw_counter = 0
+        self.game.choosing_color = False
         p.cards = [c.Card(c.BLUE, '1'), c.Card(c.GREEN, '1'),
                    c.Card(c.GREEN, c.DRAW_TWO),
                    c.Card(None, None, c.DRAW_FOUR),
                    c.Card(None, None, c.CHOOSE)]
 
-        p.playable_cards()
-
         p.play(c.Card(None, None, c.DRAW_FOUR))
-        self.game.choose_color(c.GREEN)
-
-        self.assertFalse(self.game.current_player.prev.bluffing)
+        self.assertFalse(p.bluffing)

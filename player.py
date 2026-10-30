@@ -127,29 +127,32 @@ class Player(object):
 
     def play(self, card):
         """Plays a card and removes it from hand"""
+        if card.special == c.DRAW_FOUR:
+            # You may only play a +4 if you have no card of the current color
+            self.bluffing = self._holds_matching_color()
         self.cards.remove(card)
         self.game.play_card(card)
 
-    def playable_cards(self):
-        """Returns a list of the cards this player can play right now"""
-
-        playable = list()
+    def _holds_matching_color(self):
+        """Whether a playable card in the hand matches the current color.
+        After drawing, only the drawn card counts."""
         last = self.game.last_card
+        cards = self.cards[-1:] if self.drew else self.cards
+        return any(self._card_playable(card) and card.color == last.color
+                   for card in cards)
 
+    def playable_cards(self):
+        """Returns a list of the cards this player can play right now.
+        Has no side effects, so it doubles as the legality check for a move."""
+
+        last = self.game.last_card
         self.logger.debug("Last card was " + str(last))
 
         cards = self.cards
         if self.drew:
             cards = self.cards[-1:]
 
-        # You may only play a +4 if you have no cards of the correct color
-        self.bluffing = False
-        for card in cards:
-            if self._card_playable(card):
-                self.logger.debug("Matching!")
-                playable.append(card)
-
-                self.bluffing = (self.bluffing or card.color == last.color)
+        playable = [card for card in cards if self._card_playable(card)]
 
         # You may not play a chooser or +4 as your last card
         if len(self.cards) == 1 and self.cards[0].special:
