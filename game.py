@@ -46,6 +46,7 @@ class Game(object):
         self.last_card = None
         self.thread_id = None
         self.owner = list(ADMIN_LIST) if ADMIN_LIST else []
+        self.last_activity = datetime.now()
 
         self.deck = Deck()
 
@@ -74,6 +75,11 @@ class Game(object):
 
         self._first_card_()
         self.started = True
+        self.last_activity = datetime.now()
+
+    def idle_seconds(self):
+        """Seconds since the game started or the turn last changed."""
+        return (datetime.now() - self.last_activity).total_seconds()
 
     def set_mode(self, mode):
         self.mode = mode
@@ -89,6 +95,7 @@ class Game(object):
         self.current_player.drew = False
         self.current_player.turn_started = datetime.now()
         self.choosing_color = False
+        self.last_activity = self.current_player.turn_started
 
     def _first_card_(self):
         # In case that the player did not select a game mode

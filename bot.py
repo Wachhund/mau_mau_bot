@@ -31,7 +31,8 @@ import settings
 import simple_commands
 from actions import (do_call_bluff, do_draw, do_play_card, do_skip,
                      is_action_allowed, start_player_countdown)
-from config import WAITING_TIME, DEFAULT_GAMEMODE, MIN_PLAYERS
+from config import (DEFAULT_GAMEMODE, MIN_PLAYERS, STALE_GAME_TIMEOUT,
+                    WAITING_TIME)
 from errors import (AlreadyJoinedError, DeckEmptyError, GameAlreadyRunningError,
                     LobbyClosedError, NoGameInChatError, NotEnoughPlayersError)
 from internationalization import (_, __, game_locale_stack, game_locales,
@@ -102,45 +103,73 @@ async def notify_me(update: Update, context: ContextTypes.DEFAULT_TYPE):
             gm.remind_dict[chat_id] = {update.message.from_user.id}
 
 
+async def can_replace_game(game, user, bot, chat):
+    """Whether ``user`` may start a new game over ``game``.
+
+    Anyone may replace a lobby that has not started, or a game nobody has
+    moved in for STALE_GAME_TIMEOUT seconds. The creator and chat admins
+    may replace a game at any time.
+    """
+    if not game.started:
+        return True
+    if STALE_GAME_TIMEOUT and game.idle_seconds() >= STALE_GAME_TIMEOUT:
+        return True
+    return await user_is_creator_or_admin(user, game, bot, chat)
+
+
 @user_locale
 async def new_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler for the /new command"""
-    chat_id = update.message.chat_id
+    chat = update.message.chat
+    user = update.message.from_user
     thread_id = get_thread_id(update)
 
-    if update.message.chat.type == 'private':
+    if chat.type == 'private':
         await help_handler(update, context)
+        return
 
-    else:
-        # Collect reminders before locking (send after lock release)
-        remind_users = None
-        if update.message.chat_id in gm.remind_dict:
-            remind_users = list(gm.remind_dict[update.message.chat_id])
-            del gm.remind_dict[update.message.chat_id]
-
-        try:
-            game = gm.new_game(update.message.chat, thread_id=thread_id)
-        except GameAlreadyRunningError:
-            await send_async(context.bot, chat_id,
+    existing = gm.game_for_chat_topic(chat.id, thread_id)
+    if existing is not None and existing.players:
+        if not await can_replace_game(existing, user, context.bot, chat):
+            await send_async(context.bot, chat.id,
                        text=_("There is already a game in this chat. "
                               "End it with /kill before starting a new one."),
                        message_thread_id=thread_id)
             return
-        game.starter = update.message.from_user
-        game.owner.append(update.message.from_user.id)
-        game.mode = DEFAULT_GAMEMODE
-
-        if remind_users:
-            for user in remind_users:
-                await send_async(context.bot,
-                           user,
-                           text=_("A new game has been started in {title}").format(
-                                title=update.message.chat.title))
-
-        await send_async(context.bot, chat_id,
-                   text=_("Created a new game! Join the game with /join "
-                          "and start the game with /start"),
+        gm.end_game(existing)
+        await send_async(context.bot, chat.id,
+                   text=__("Game ended!", multi=existing.translate),
                    message_thread_id=thread_id)
+
+    # Collect reminders before locking (send after lock release)
+    remind_users = None
+    if chat.id in gm.remind_dict:
+        remind_users = list(gm.remind_dict[chat.id])
+        del gm.remind_dict[chat.id]
+
+    try:
+        game = gm.new_game(chat, thread_id=thread_id)
+    except GameAlreadyRunningError:
+        await send_async(context.bot, chat.id,
+                   text=_("There is already a game in this chat. "
+                          "End it with /kill before starting a new one."),
+                   message_thread_id=thread_id)
+        return
+    game.starter = user
+    game.owner.append(user.id)
+    game.mode = DEFAULT_GAMEMODE
+
+    if remind_users:
+        for user_id in remind_users:
+            await send_async(context.bot,
+                       user_id,
+                       text=_("A new game has been started in {title}").format(
+                            title=chat.title))
+
+    await send_async(context.bot, chat.id,
+               text=_("Created a new game! Join the game with /join "
+                      "and start the game with /start"),
+               message_thread_id=thread_id)
 
 
 @user_locale

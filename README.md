@@ -19,6 +19,8 @@ To run the bot yourself, you will need:
 You can change some gameplay parameters like turn times, minimum amount of players and default gamemode in `config.json`.
 Current gamemodes available: classic, fast, wild and text. Check the details with the `/modes` command.
 
+A chat (or forum topic) holds one game at a time. `/new` over a lobby that has not started replaces it. `/new` over a running game is refused, unless nobody has made a move for `stale_game_timeout` seconds (default 600, 0 disables this) or the caller is the game's creator or a chat admin.
+
 Then run the bot with `uv run bot.py`.
 
 To run the tests: `uv run pytest`.

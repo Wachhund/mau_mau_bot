@@ -55,3 +55,6 @@ WAITING_TIME = int(os.getenv("WAITING_TIME", config.get("waiting_time", 120)))
 TIME_REMOVAL_AFTER_SKIP = int(os.getenv("TIME_REMOVAL_AFTER_SKIP", config.get("time_removal_after_skip", 20)))
 MIN_FAST_TURN_TIME = int(os.getenv("MIN_FAST_TURN_TIME", config.get("min_fast_turn_time", 15)))
 MIN_PLAYERS = int(os.getenv("MIN_PLAYERS", config.get("min_players", 2)))
+# Seconds without a move after which anyone may /new over a running game.
+# The creator and chat admins can always do so. 0 disables the timeout.
+STALE_GAME_TIMEOUT = int(os.getenv("STALE_GAME_TIMEOUT", config.get("stale_game_timeout", 600)))
