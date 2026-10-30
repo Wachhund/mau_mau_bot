@@ -1,11 +1,20 @@
-FROM python:3.11.13-alpine@sha256:8068890a42d68ece5b62455ef327253249b5f094dcdee57f492635a40217f6a3
+# Stage 1 runs on the build host and only turns uv.lock into a pinned
+# requirements file, so the target image never needs a uv binary. That keeps
+# the linux/386 and linux/arm/v7 images building.
+FROM --platform=$BUILDPLATFORM ghcr.io/astral-sh/uv:0.13.6-python3.14-alpine AS lock
 
-# renovate: datasource=repology depName=alpine_3_22/gettext versioning=loose
-ARG         GETTEXT_VERSION="0.24.1-r0"
+WORKDIR     /app
+COPY        pyproject.toml uv.lock ./
+RUN         uv export --frozen --no-dev --no-emit-project --no-hashes -o /requirements.txt
+
+FROM python:3.14.10-alpine@sha256:eb2c62658b8d51bff0acc408504b76521d02030de56a8a3c1e830083e89b89d2
+
+# renovate: datasource=repology depName=alpine_3_24/gettext versioning=loose
+ARG         GETTEXT_VERSION="1.0-r0"
 
 WORKDIR     /app
 
-ADD         requirements.txt .
+COPY        --from=lock /requirements.txt .
 
 RUN         --mount=type=cache,sharing=locked,target=/root/.cache,id=home-cache-$TARGETPLATFORM \
             apk add --no-cache \
