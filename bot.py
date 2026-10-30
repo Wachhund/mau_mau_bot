@@ -37,9 +37,7 @@ from errors import (AlreadyJoinedError, DeckEmptyError, GameAlreadyRunningError,
                     LobbyClosedError, NoGameInChatError, NotEnoughPlayersError)
 from internationalization import (_, __, game_locale_stack, game_locales,
                                   locale_stack, user_locale)
-from result_id import (PSEUDO_GAME_ID, decode_result_id, encode_results_list)
-from result_id_resolver import (DEAD_NO_CURRENT_GAME, DEAD_NOT_A_PLAYER,
-                                DEAD_UNKNOWN_GAME, resolve_result)
+from result_id import PSEUDO_GAME_ID, decode_result_id, encode_results_list
 from results import (add_call_bluff, add_choose_color, add_draw, add_gameinfo,
                      add_no_game, add_not_started, add_other_cards, add_pass,
                      add_card, add_mode_classic, add_mode_fast, add_mode_wild, add_mode_text)
@@ -72,20 +70,9 @@ async def announce(bot, game, messages):
 
 
 def _game_in_chat(chat_id, thread_id):
-    """Resolve the active game in this ``(chat, thread)`` or ``None``.
-
-    No cross-topic fallback — a user typing in General can only act on the
-    General-channel game, never on a topic-bound game.
-    """
+    """The active game in this ``(chat, thread)`` or ``None``. A user typing
+    in General can only act on the General game, never on a topic's game."""
     return gm.game_for_chat_topic(chat_id, thread_id)
-
-
-def _resolve_game_id(game_id):
-    """Resolver for UnoUpdateProcessor: maps game.id back to (chat_id, thread_id)."""
-    game = gm.game_by_id(game_id)
-    if game is None:
-        return None
-    return (game.chat.id, game.thread_id)
 
 
 @user_locale
@@ -858,25 +845,19 @@ async def process_result(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if base_id in ('hand', 'gameinfo', 'nogame'):
         return
 
-    resolved = resolve_result(gm, decoded, user_id=user.id)
-    if resolved.dead_reason is not None:
-        # AC-8: the game has ended (or the user was kicked) between
-        # answer_inline_query and chosen_inline_result. Telegram does not give
-        # us the chat the user was typing in, so the only feedback channel is
-        # a direct message — send_async swallows "bot can't initiate chat"
-        # errors for users who never started a DM with the bot.
-        if resolved.dead_reason == DEAD_UNKNOWN_GAME:
-            hint = _("This game has already ended.")
-        elif resolved.dead_reason == DEAD_NOT_A_PLAYER:
-            hint = _("You are no longer in this game.")
-        else:  # DEAD_NO_CURRENT_GAME
-            hint = _("You are not in a game right now. "
-                     "Use /new to start one or /join to join an existing game.")
-        await send_async(context.bot, user.id, text=hint)
+    # The game may have ended, or the user left it, between the inline query
+    # and the choice. Telegram does not say which chat the user was typing
+    # in, so the only place to say so is a direct message.
+    game = gm.game_by_id(decoded.game_id)
+    if game is None:
+        await send_async(context.bot, user.id,
+                         text=_("This game has already ended."))
         return
-
-    game = resolved.game
-    player = resolved.player
+    player = next((p for p in game.players if p.user.id == user.id), None)
+    if player is None:
+        await send_async(context.bot, user.id,
+                         text=_("You are no longer in this game."))
+        return
     chat = game.chat
 
     if base_id.startswith('mode_'):

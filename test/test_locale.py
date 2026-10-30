@@ -18,130 +18,71 @@
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 
+"""The locale stack lives in a ContextVar, so concurrent tasks do not see
+each other's locales."""
+
 import asyncio
-from contextvars import ContextVar
+
 import pytest
 
-
-# Replicate the ContextVar mechanism from internationalization.py
-# without importing shared_vars (which requires a valid bot token).
-_locale_stack: ContextVar[list] = ContextVar('test_locale_stack', default=[])
+from internationalization import _, __, _locale_stack, locale_stack
 
 
-class _TestUnderscore:
-    """Minimal reproduction of _Underscore for testing ContextVar isolation"""
-
-    def push(self, locale):
-        stack = _locale_stack.get([])
-        _locale_stack.set(stack + [locale])
-
-    def pop(self):
-        stack = _locale_stack.get([])
-        if stack:
-            locale = stack[-1]
-            _locale_stack.set(stack[:-1])
-            return locale
-        return None
-
-    @property
-    def code(self):
-        stack = _locale_stack.get([])
-        if stack:
-            return stack[-1]
-        return None
-
-    def __call__(self, singular, plural=None, n=1, locale=None):
-        if not locale:
-            stack = _locale_stack.get([])
-            locale = stack[-1] if stack else 'en_US'
-        if n == 1:
-            return singular
-        return plural
+@pytest.fixture(autouse=True)
+def empty_stack():
+    _locale_stack.set([])
+    yield
+    _locale_stack.set([])
 
 
-_ = _TestUnderscore()
+@pytest.mark.asyncio
+async def test_concurrent_tasks_have_isolated_stacks():
+    results = {}
+    first_inside = asyncio.Event()
 
-
-def set_locale_stack(locales):
-    _locale_stack.set(list(locales))
-
-
-class TestContextVarIsolation:
-    """Tests that locale stack is isolated per asyncio task via ContextVar"""
-
-    @pytest.mark.asyncio
-    async def test_concurrent_tasks_have_isolated_stacks(self):
-        """Two tasks pushing different locales should not interfere"""
-        results = {}
-        barrier = asyncio.Event()
-
-        async def task_a():
-            _.push('de_DE')
-            barrier.set()
-            await asyncio.sleep(0)  # yield to let task_b run
+    async def task_a():
+        with locale_stack(['de_DE']):
+            first_inside.set()
+            await asyncio.sleep(0)  # let task_b run in between
             results['a'] = _.code
 
-        async def task_b():
-            await barrier.wait()
-            _.push('ru_RU')
+    async def task_b():
+        await first_inside.wait()
+        with locale_stack(['ru_RU']):
             await asyncio.sleep(0)
             results['b'] = _.code
 
-        await asyncio.gather(
-            asyncio.create_task(task_a()),
-            asyncio.create_task(task_b()),
-        )
+    await asyncio.gather(task_a(), task_b())
 
-        assert results['a'] == 'de_DE'
-        assert results['b'] == 'ru_RU'
+    assert results == {'a': 'de_DE', 'b': 'ru_RU'}
 
-    @pytest.mark.asyncio
-    async def test_main_task_not_affected_by_subtask(self):
-        """A subtask's locale push should not leak into the parent"""
-        _.push('en_US')
 
+@pytest.mark.asyncio
+async def test_subtask_push_does_not_leak_into_the_parent():
+    with locale_stack(['en_US']):
         async def subtask():
             _.push('zh_CN')
             assert _.code == 'zh_CN'
 
         await asyncio.create_task(subtask())
 
-        # Parent should still see en_US, not zh_CN
         assert _.code == 'en_US'
-        _.pop()
-
-    @pytest.mark.asyncio
-    async def test_set_locale_stack_for_jobs(self):
-        """set_locale_stack should replace the current task's stack"""
-        set_locale_stack(['de_DE', 'es_ES'])
-        stack = _locale_stack.get([])
-        assert stack == ['de_DE', 'es_ES']
-        assert _.code == 'es_ES'
-
-    @pytest.mark.asyncio
-    async def test_empty_stack_returns_none(self):
-        """Empty locale stack should return None for code"""
-        _locale_stack.set([])
-        assert _.code is None
-
-    @pytest.mark.asyncio
-    async def test_push_pop_symmetry(self):
-        """Push and pop should be symmetric"""
-        _locale_stack.set([])
-        _.push('de_DE')
-        _.push('fr_FR')
-        assert _.code == 'fr_FR'
-        result = _.pop()
-        assert result == 'fr_FR'
-        assert _.code == 'de_DE'
-        _.pop()
-        assert _.code is None
-
-    @pytest.mark.asyncio
-    async def test_underscore_falls_back_to_en_US(self):
-        """Calling _() with empty stack should use en_US (return original string)"""
-        _locale_stack.set([])
-        result = _("Test string")
-        assert result == "Test string"
 
 
+def test_push_and_pop_are_symmetric():
+    _.push('de_DE')
+    _.push('fr_FR')
+    assert _.code == 'fr_FR'
+    assert _.pop() == 'fr_FR'
+    assert _.code == 'de_DE'
+    assert _.pop() == 'de_DE'
+    assert _.code is None
+    assert _.pop() is None
+
+
+def test_empty_stack_falls_back_to_english():
+    assert _.code is None
+    assert _("Test string") == "Test string"
+    assert _("one thing", "{n} things", 3) == "{n} things"
+    assert __("Game ended!") == "Game ended!"
+    assert __("Game ended!", multi=True) == "Game ended!"

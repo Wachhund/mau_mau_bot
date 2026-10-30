@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: uno_bot 1.0\n"
 "Report-Msgid-Bugs-To: uno@jhoeke.de\n"
-"POT-Creation-Date: 2019-08-28 14:21+0800\n"
+"POT-Creation-Date: 2026-10-30 16:34+0100\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -17,176 +17,186 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=INTEGER; plural=EXPRESSION;\n"
 
-#: actions.py:48
+#: actions.py:88
 #, python-brace-format
 msgid ""
 "Waiting time to skip this player has been reduced to {time} seconds.\n"
 "Next player: {name}"
 msgstr ""
 
-#: actions.py:54 actions.py:69
-#, python-brace-format
-msgid "{player} was skipped! "
-msgstr ""
-
-#: actions.py:64
-#, python-brace-format
-msgid ""
-"{name1} ran out of time and has been removed from the game!\n"
-"Next player: {name2}"
-msgstr ""
-
-#: actions.py:76
+#: actions.py:100
 #, python-brace-format
 msgid ""
 "{name} ran out of time and has been removed from the game!\n"
 "The game ended."
 msgstr ""
 
-#: actions.py:101
+#: actions.py:107
+#, python-brace-format
+msgid ""
+"{name1} ran out of time and has been removed from the game!\n"
+"Next player: {name2}"
+msgstr ""
+
+#: actions.py:131
 msgid "Please choose a color"
 msgstr ""
 
-#: actions.py:108
+#: actions.py:137
 #, python-brace-format
 msgid "{name} won!"
 msgstr ""
 
-#: actions.py:123 bot.py:119 bot.py:199 bot.py:261 bot.py:340
+#: actions.py:153 bot.py:129 bot.py:177 bot.py:273 bot.py:347 bot.py:466
 msgid "Game ended!"
 msgstr ""
 
-#: actions.py:141 actions.py:165 actions.py:179
+#: actions.py:174 actions.py:198 actions.py:210
 msgid "There are no more cards in the deck."
 msgstr ""
 
-#: actions.py:157
+#: actions.py:191
 #, python-brace-format
 msgid "Bluff called! Giving 4 cards to {name}"
 msgstr ""
 
-#: actions.py:171
+#: actions.py:203
 #, python-brace-format
 msgid "{name1} didn't bluff! Giving 6 cards to {name2}"
 msgstr ""
 
-#: bot.py:60
+#: bot.py:85
 msgid ""
 "Send this command in a group to be notified when a new game is started there."
 msgstr ""
 
-#: bot.py:83
+#: bot.py:123 bot.py:136
+msgid ""
+"There is already a game in this chat. End it with /kill before starting a "
+"new one."
+msgstr ""
+
+#: bot.py:146
 #, python-brace-format
 msgid "A new game has been started in {title}"
 msgstr ""
 
-#: bot.py:93
+#: bot.py:152
 msgid ""
 "Created a new game! Join the game with /join and start the game with /start"
 msgstr ""
 
-#: bot.py:110 bot.py:433 bot.py:461 bot.py:488 bot.py:516
+#: bot.py:171 bot.py:577 bot.py:607 bot.py:636 bot.py:666
 msgid "There is no running game in this chat."
 msgstr ""
 
-#: bot.py:123 bot.py:239
+#: bot.py:182 bot.py:374 bot.py:590 bot.py:619 bot.py:649 bot.py:680
+#, python-brace-format
+msgid "Only the game creator ({name}) and admin can do that."
+msgstr ""
+
+#: bot.py:202
+msgid "The lobby is closed"
+msgstr ""
+
+#: bot.py:208 bot.py:311
+msgid "No game is running at the moment. Create a new game with /new"
+msgstr ""
+
+#: bot.py:217
+msgid "You already joined the game. Start the game with /start"
+msgstr ""
+
+#: bot.py:226
+msgid "There are not enough cards left in the deck for new players to join."
+msgstr ""
+
+#: bot.py:237
+msgid "Joined the game"
+msgstr ""
+
+#: bot.py:252 bot.py:265
+msgid "You are not playing in a game in this group."
+msgstr ""
+
+#: bot.py:282 bot.py:366
+#, python-brace-format
+msgid "Okay. Next Player: {name}"
+msgstr ""
+
+#: bot.py:289
+#, python-brace-format
+msgid "{name} left the game before it started."
+msgstr ""
+
+#: bot.py:319
 msgid ""
 "The game is not started yet. Join the game with /join and start the game "
 "with /start"
 msgstr ""
 
-#: bot.py:129 bot.py:281 bot.py:446 bot.py:473 bot.py:501 bot.py:530
-#, python-brace-format
-msgid "Only the game creator ({name}) and admin can do that."
-msgstr ""
-
-#: bot.py:146
-msgid "The lobby is closed"
-msgstr ""
-
-#: bot.py:150 bot.py:232
-msgid "No game is running at the moment. Create a new game with /new"
-msgstr ""
-
-#: bot.py:156
-msgid "You already joined the game. Start the game with /start"
-msgstr ""
-
-#: bot.py:162
-msgid "There are not enough cards left in the deck for new players to join."
-msgstr ""
-
-#: bot.py:168
-msgid "Joined the game"
-msgstr ""
-
-#: bot.py:181 bot.py:193
-msgid "You are not playing in a game in this group."
-msgstr ""
-
-#: bot.py:204 bot.py:274
-#, python-brace-format
-msgid "Okay. Next Player: {name}"
-msgstr ""
-
-#: bot.py:210
-#, python-brace-format
-msgid "{name} left the game before it started."
-msgstr ""
-
-#: bot.py:253
+#: bot.py:337
 #, python-brace-format
 msgid "Player {name} is not found in the current game."
 msgstr ""
 
-#: bot.py:260 bot.py:265
+#: bot.py:345 bot.py:355
 #, python-brace-format
 msgid "{0} was kicked by {1}"
 msgstr ""
 
-#: bot.py:269
+#: bot.py:360
 msgid "Please reply to the person you want to kick and type /kick again."
 msgstr ""
 
-#: bot.py:299
+#: bot.py:384
+#, python-brace-format
+msgid "{group} (topic {topic})"
+msgstr ""
+
+#: bot.py:404
 msgid "Game not found."
 msgstr ""
 
-#: bot.py:304
+#: bot.py:409
 msgid "Back to last group"
 msgstr ""
 
-#: bot.py:307
+#: bot.py:413
 msgid "Please switch to the group you selected!"
 msgstr ""
 
-#: bot.py:313
+#: bot.py:419
 #, python-brace-format
 msgid ""
 "Selected group: {group}\n"
 "<b>Make sure that you switch to the correct group!</b>"
 msgstr ""
 
-#: bot.py:343
+#: bot.py:471
 #, python-brace-format
 msgid "Removing {name} from the game"
 msgstr ""
 
-#: bot.py:360
+#: bot.py:492
 msgid "There is no game running in this chat. Create a new one with /new"
 msgstr ""
 
-#: bot.py:365
+#: bot.py:498
 msgid "The game has already started"
 msgstr ""
 
-#: bot.py:369
+#: bot.py:503
 #, python-brace-format
 msgid ""
 "At least {minplayers} players must /join the game before you can start it"
 msgstr ""
 
-#: bot.py:380
+#: bot.py:518 bot.py:919
+msgid "Make your choice!"
+msgstr ""
+
+#: bot.py:520
 #, python-brace-format
 msgid ""
 "First player: {name}\n"
@@ -194,59 +204,73 @@ msgid ""
 "Enable multi-translations with /enable_translations"
 msgstr ""
 
-#: bot.py:417
+#: bot.py:542 results.py:78
+msgid ""
+"Not playing right now. Use /new to start a game or /join to join the current "
+"game in this group"
+msgstr ""
+
+#: bot.py:560
 msgid "Please select the group you want to play in."
 msgstr ""
 
-#: bot.py:440
+#: bot.py:583
 msgid "Closed the lobby. No more players can join this game."
 msgstr ""
 
-#: bot.py:468
+#: bot.py:613
 msgid "Opened the lobby. New players may /join the game."
 msgstr ""
 
-#: bot.py:495
+#: bot.py:642
 msgid "Enabled multi-translations. Disable with /disable_translations"
 msgstr ""
 
-#: bot.py:523
+#: bot.py:672
 msgid ""
 "Disabled multi-translations. Enable them again with /enable_translations"
 msgstr ""
 
-#: bot.py:546
+#: bot.py:698
 msgid "You are not playing in a game in this chat."
 msgstr ""
 
-#: bot.py:561
+#: bot.py:714
 #, python-brace-format
 msgid "Please wait {time} second"
 msgid_plural "Please wait {time} seconds"
 msgstr[0] ""
 msgstr[1] ""
 
-#: bot.py:637
+#: bot.py:799
 #, python-brace-format
 msgid "Current game: {game}"
 msgstr ""
 
-#: bot.py:672
+#: bot.py:854
+msgid "This game has already ended."
+msgstr ""
+
+#: bot.py:859
+msgid "You are no longer in this game."
+msgstr ""
+
+#: bot.py:871
 #, python-brace-format
 msgid "Gamemode changed to {mode}"
 msgstr ""
 
-#: bot.py:678
+#: bot.py:879
 #, python-brace-format
 msgid "Cheat attempt by {name}"
 msgstr ""
 
-#: bot.py:697
+#: bot.py:917
 #, python-brace-format
 msgid "Next player: {name}"
 msgstr ""
 
-#: bot.py:709
+#: bot.py:932
 #, python-brace-format
 msgid "Waiting time for {name} has been reset to {time} seconds"
 msgstr ""
@@ -268,34 +292,8 @@ msgid_plural "{name} ({number} cards)"
 msgstr[0] ""
 msgstr[1] ""
 
-#: bot.py:121
-msgid ""
-"There is already a game in this chat. End it with /kill before starting a "
-"new one."
-msgstr ""
-
-#: bot.py:796
-msgid "This game has already ended."
-msgstr ""
-
-#: bot.py:798
-msgid "You are no longer in this game."
-msgstr ""
-
-#: bot.py:800
-msgid ""
-"You are not in a game right now. Use /new to start one or /join to join an "
-"existing game."
-msgstr ""
-
 #: results.py:76
 msgid "You are not playing"
-msgstr ""
-
-#: results.py:78
-msgid ""
-"Not playing right now. Use /new to start a game or /join to join the current "
-"game in this group"
 msgstr ""
 
 #: results.py:90
@@ -330,75 +328,83 @@ msgstr ""
 msgid "Into the Wild~ 🐉"
 msgstr ""
 
-#: results.py:141
+#: results.py:138
+msgid "✍️ Text mode"
+msgstr ""
+
+#: results.py:140
+msgid "Text ✍️"
+msgstr ""
+
+#: results.py:153
 #, python-brace-format
 msgid "Drawing {number} card"
 msgid_plural "Drawing {number} cards"
 msgstr[0] ""
 msgstr[1] ""
 
-#: results.py:167
+#: results.py:179
 msgid "Pass"
 msgstr ""
 
-#: results.py:180
+#: results.py:192
 msgid "I'm calling your bluff!"
 msgstr ""
 
-#: results.py:203
+#: results.py:220
 #, python-brace-format
 msgid "Current player: {name}"
 msgstr ""
 
-#: results.py:206
+#: results.py:223
 #, python-brace-format
 msgid "Last card: {card}"
 msgstr ""
 
-#: results.py:208
+#: results.py:225
 #, python-brace-format
 msgid "Player: {player_list}"
 msgid_plural "Players: {player_list}"
 msgstr[0] ""
 msgstr[1] ""
 
-#: settings.py:37
+#: settings.py:38
 msgid "Please edit your settings in a private chat with the bot."
 msgstr ""
 
-#: settings.py:47
+#: settings.py:49
 msgid "Enable statistics"
 msgstr ""
 
-#: settings.py:49
+#: settings.py:51
 msgid "Delete all statistics"
 msgstr ""
 
-#: settings.py:51
+#: settings.py:53
 msgid "Language"
 msgstr ""
 
-#: settings.py:52
+#: settings.py:54
 msgid "Settings"
 msgstr ""
 
-#: settings.py:66
+#: settings.py:69
 msgid "Enabled statistics!"
 msgstr ""
 
-#: settings.py:72
+#: settings.py:75
 msgid "Select locale"
 msgstr ""
 
-#: settings.py:82
+#: settings.py:86
 msgid "Deleted and disabled statistics!"
 msgstr ""
 
-#: settings.py:95
+#: settings.py:100
 msgid "Set locale!"
 msgstr ""
 
-#: simple_commands.py:31
+#: simple_commands.py:35
 msgid ""
 "Follow these steps:\n"
 "\n"
@@ -434,9 +440,9 @@ msgid ""
 "unobotnews\">update channel</a> and buy an UNO card game."
 msgstr ""
 
-#: simple_commands.py:73
+#: simple_commands.py:84
 msgid ""
-"This UNO bot has three game modes: Classic, Sanic and Wild.\n"
+"This UNO bot has four game modes: Classic, Sanic, Wild and Text.\n"
 "\n"
 " 🎻 The Classic mode uses the conventional UNO deck and there is no auto "
 "skip.\n"
@@ -444,19 +450,21 @@ msgid ""
 "skips a player if he/she takes too long to play its turn\n"
 " 🐉 The Wild mode uses a deck with more special cards, less number variety "
 "and no auto skip.\n"
+" ✍️ The Text mode uses the conventional UNO deck but instead of stickers it "
+"uses the text.\n"
 "\n"
 "To change the game mode, the GAME CREATOR has to type the bot nickname and a "
 "space, just like when playing a card, and all gamemode options should appear."
 msgstr ""
 
-#: simple_commands.py:85
+#: simple_commands.py:98
 msgid ""
 "This bot is Free Software and licensed under the AGPL. The code is available "
 "here: \n"
 "https://github.com/jh0ker/mau_mau_bot"
 msgstr ""
 
-#: simple_commands.py:88
+#: simple_commands.py:101
 msgid ""
 "Attributions:\n"
 "Draw icon by <a href=\"http://www.faithtoken.com/\">Faithtoken</a>\n"
@@ -465,53 +473,53 @@ msgid ""
 "Icons edited by ɳick"
 msgstr ""
 
-#: simple_commands.py:105
+#: simple_commands.py:119
 msgid "All news here: https://telegram.me/unobotnews"
 msgstr ""
 
-#: simple_commands.py:115
+#: simple_commands.py:139
 msgid ""
 "You did not enable statistics. Use /settings in a private chat with the bot "
 "to enable them."
 msgstr ""
 
-#: simple_commands.py:122
+#: simple_commands.py:147
 #, python-brace-format
 msgid "{number} game played"
 msgid_plural "{number} games played"
 msgstr[0] ""
 msgstr[1] ""
 
-#: simple_commands.py:129
+#: simple_commands.py:155
 #, python-brace-format
 msgid "{number} first place ({percent}%)"
 msgid_plural "{number} first places ({percent}%)"
 msgstr[0] ""
 msgstr[1] ""
 
-#: simple_commands.py:136
+#: simple_commands.py:162
 #, python-brace-format
 msgid "{number} card played"
 msgid_plural "{number} cards played"
 msgstr[0] ""
 msgstr[1] ""
 
-#: utils.py:55 utils.py:67
+#: utils.py:93 utils.py:105
 #, python-brace-format
 msgid "{emoji} Red"
 msgstr ""
 
-#: utils.py:57 utils.py:70
+#: utils.py:95 utils.py:108
 #, python-brace-format
 msgid "{emoji} Blue"
 msgstr ""
 
-#: utils.py:59 utils.py:73
+#: utils.py:97 utils.py:111
 #, python-brace-format
 msgid "{emoji} Green"
 msgstr ""
 
-#: utils.py:61 utils.py:76
+#: utils.py:99 utils.py:114
 #, python-brace-format
 msgid "{emoji} Yellow"
 msgstr ""

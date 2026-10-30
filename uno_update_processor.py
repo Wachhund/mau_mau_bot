@@ -28,6 +28,8 @@ from typing import Awaitable, Callable, Optional, Tuple
 from telegram import Update
 from telegram.ext import BaseUpdateProcessor
 
+from result_id import PSEUDO_GAME_ID, decode_result_id
+
 
 logger = logging.getLogger(__name__)
 
@@ -110,14 +112,10 @@ class UnoUpdateProcessor(BaseUpdateProcessor):
 
         cir = update.chosen_inline_result
         if cir is not None and self._game_resolver is not None:
-            result_id = cir.result_id or ''
-            parts = result_id.split(':', 2)
-            if len(parts) < 3:
+            decoded = decode_result_id(cir.result_id or '')
+            if decoded is None or decoded.game_id == PSEUDO_GAME_ID:
                 return None
-            game_id = parts[0]
-            if game_id == 'none':
-                return None
-            return self._game_resolver(game_id)
+            return self._game_resolver(decoded.game_id)
 
         return None
 

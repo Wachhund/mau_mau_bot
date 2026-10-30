@@ -274,6 +274,32 @@ async def test_bluff_call_against_a_real_bluff_returns_the_cards():
     assert context.bot.sent[0].startswith('Bluff called!')
 
 
+@pytest.mark.asyncio
+async def test_result_for_an_ended_game_tells_the_user_by_direct_message():
+    game = _started_game(_user(1), _user(2), _user(3))
+    current = game.current_player
+    result_id = _result(current, 'draw')
+    gm.end_game(game)
+    context = _context()
+
+    await bot.process_result(_chosen(current.user, result_id), context)
+
+    assert context.bot.sent == ['This game has already ended.']
+
+
+@pytest.mark.asyncio
+async def test_result_from_a_player_who_left_tells_them_by_direct_message():
+    game = _started_game(_user(1), _user(2), _user(3))
+    other = _other_player(game)
+    result_id = _result(other, 'draw')
+    gm.leave_game(other.user, CHAT)
+    context = _context()
+
+    await bot.process_result(_chosen(other.user, result_id), context)
+
+    assert context.bot.sent == ['You are no longer in this game.']
+
+
 def test_chosen_result_is_attributed_to_the_game_in_its_result_id():
     """Locales come from the game the result belongs to, even when the user
     has selected a different game for inline queries."""

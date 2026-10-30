@@ -64,7 +64,7 @@ async def kb_select(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if option == '📊':
         with db_session:
-            us = UserSetting.get(id=user.id)
+            us = UserSetting.get(id=user.id) or UserSetting(id=user.id)
             us.stats = True
         await send_async(context.bot, chat.id, text=_("Enabled statistics!"))
 
@@ -78,7 +78,7 @@ async def kb_select(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif option == '❌':
         with db_session:
-            us = UserSetting.get(id=user.id)
+            us = UserSetting.get(id=user.id) or UserSetting(id=user.id)
             us.stats = False
             us.first_places = 0
             us.games_played = 0
@@ -94,7 +94,7 @@ async def locale_select(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if option in available_locales:
         with db_session:
-            us = UserSetting.get(id=user.id)
+            us = UserSetting.get(id=user.id) or UserSetting(id=user.id)
             us.lang = option
         _.push(option)
         await send_async(context.bot, chat.id, text=_("Set locale!"))
