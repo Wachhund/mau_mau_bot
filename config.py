@@ -44,6 +44,9 @@ OPEN_LOBBY = os.getenv("OPEN_LOBBY", config.get("open_lobby", True))
 ENABLE_TRANSLATIONS = os.getenv("ENABLE_TRANSLATIONS", config.get("enable_translations", False))
 # Discard updates that arrived while the bot was offline.
 DROP_PENDING_UPDATES = os.getenv("DROP_PENDING_UPDATES", config.get("drop_pending_updates", False))
+# SQLite write-ahead logging. Turn it off for a database on a network
+# filesystem, which WAL does not support.
+SQLITE_WAL = os.getenv("SQLITE_WAL", config.get("sqlite_wal", True))
 
 if isinstance(OPEN_LOBBY, str):
     OPEN_LOBBY = OPEN_LOBBY.lower() in ("yes", "true", "t", "1")
@@ -53,6 +56,9 @@ if isinstance(ENABLE_TRANSLATIONS, str):
 
 if isinstance(DROP_PENDING_UPDATES, str):
     DROP_PENDING_UPDATES = DROP_PENDING_UPDATES.lower() in ("yes", "true", "t", "1")
+
+if isinstance(SQLITE_WAL, str):
+    SQLITE_WAL = SQLITE_WAL.lower() in ("yes", "true", "t", "1")
 
 DEFAULT_GAMEMODE = os.getenv("DEFAULT_GAMEMODE", config.get("default_gamemode", "fast"))
 WAITING_TIME = int(os.getenv("WAITING_TIME", config.get("waiting_time", 120)))

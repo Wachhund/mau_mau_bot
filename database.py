@@ -20,5 +20,21 @@
 
 from pony.orm import Database
 
+from config import SQLITE_WAL
+
 # Database singleton
 db = Database()
+
+
+# Without WAL every commit waits for an fsync. NORMAL can lose the last
+# commits on power loss, but not on a crash of the bot. The journal mode is
+# stored in the file, so turning WAL off has to set DELETE explicitly.
+@db.on_connect(provider='sqlite')
+def _sqlite_pragmas(db, connection):
+    cursor = connection.cursor()
+    if SQLITE_WAL:
+        cursor.execute('PRAGMA journal_mode=WAL')
+        cursor.execute('PRAGMA synchronous=NORMAL')
+    else:
+        cursor.execute('PRAGMA journal_mode=DELETE')
+        cursor.execute('PRAGMA synchronous=FULL')

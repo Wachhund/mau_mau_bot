@@ -74,6 +74,8 @@ chart/charts
 
 # Database file
 uno.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
 data/
 
 images/api_auth.json
