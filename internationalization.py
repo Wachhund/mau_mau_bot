@@ -21,7 +21,7 @@
 import gettext
 from contextlib import contextmanager
 from contextvars import ContextVar
-from functools import wraps
+from functools import lru_cache, wraps
 
 from locales import available_locales
 from pony.orm import db_session
@@ -138,9 +138,12 @@ def set_locale_stack(locales):
     _locale_stack.set(list(locales))
 
 
+@lru_cache(maxsize=10_000)
 def user_locale_code(user_id):
     """The locale a user picked in /settings, or ``en_US``. A settings row
-    created for statistics has an empty ``lang``."""
+    created for statistics has an empty ``lang``. Cached because every
+    update reads it for each player; call ``cache_clear()`` after writing
+    ``lang``."""
     with db_session:
         us = UserSetting.get(id=user_id)
     if us and us.lang and us.lang != 'en':

@@ -26,7 +26,7 @@ from utils import send_async
 from user_setting import UserSetting
 from shared_vars import application
 from locales import available_locales
-from internationalization import _, user_locale
+from internationalization import _, user_locale, user_locale_code
 
 
 @user_locale
@@ -96,6 +96,7 @@ async def locale_select(update: Update, context: ContextTypes.DEFAULT_TYPE):
         with db_session:
             us = UserSetting.get(id=user.id) or UserSetting(id=user.id)
             us.lang = option
+        user_locale_code.cache_clear()
         _.push(option)
         await send_async(context.bot, chat.id, text=_("Set locale!"))
         _.pop()
