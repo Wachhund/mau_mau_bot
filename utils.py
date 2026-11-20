@@ -23,10 +23,12 @@ import logging
 import time
 
 from telegram import Update
+from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
 from internationalization import _, __
 from shared_vars import gm
+from uno_update_processor import topic_id
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +89,11 @@ def display_name(user):
     return user_name
 
 
+def log_name(user):
+    """A user's name and Telegram id, for log messages."""
+    return f"{display_name(user)} [{user.id}]"
+
+
 def display_color(color):
     """ Convert a color code to actual color name """
     if color == "r":
@@ -125,30 +132,56 @@ async def error(update: object, context: ContextTypes.DEFAULT_TYPE):
     """
     exc = getattr(context, 'error', None) if context is not None else None
     if exc is not None:
-        logger.error("Unhandled exception in update handler", exc_info=exc)
+        logger.error("Unhandled exception in update handler (%s)",
+                     _describe_update(update), exc_info=exc)
     else:
         logger.error("Error handler invoked without context.error")
 
 
-async def safe_call(coro):
+def _describe_update(update):
+    """Where an update came from: chat, topic and user ids."""
+    if not isinstance(update, Update):
+        return "no update"
+    parts = []
+    if update.effective_chat:
+        parts.append(f"chat {update.effective_chat.id}")
+    topic = topic_id(update.effective_message)
+    if topic is not None:
+        parts.append(f"topic {topic}")
+    if update.effective_user:
+        parts.append(f"user {update.effective_user.id}")
+    return ", ".join(parts) or f"update {update.update_id}"
+
+
+async def safe_call(coro, chat_id=None):
     """Await a bot call, logging a failure instead of raising.
 
     Use it where a failed request must not abort the handler. Network
     timeouts are configured on the Application builder (``shared_vars.py``).
+    Telegram errors (blocked bot, timeouts, flood limits) get one warning
+    line; anything else gets a traceback.
 
     Example:
-        await safe_call(bot.send_sticker(chat_id, sticker=file_id))
+        await safe_call(bot.send_sticker(chat_id, sticker=file_id), chat_id)
     """
+    name = getattr(coro, '__name__', 'Bot call')
     try:
         return await coro
+    except TelegramError as e:
+        if chat_id is None:
+            logger.warning("%s failed: %s", name, e)
+        else:
+            logger.warning("%s to chat %s failed: %s", name, chat_id, e)
+        return None
     except Exception:
-        logger.exception("Bot call failed")
+        logger.exception("%s failed", name)
         return None
 
 
 async def send_async(bot, *args, **kwargs):
     """Send a message; a failed send is logged, not raised."""
-    return await safe_call(bot.send_message(*args, **kwargs))
+    chat_id = args[0] if args else kwargs.get('chat_id')
+    return await safe_call(bot.send_message(*args, **kwargs), chat_id)
 
 
 async def answer_async(bot, *args, **kwargs):

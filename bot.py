@@ -18,7 +18,9 @@
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 import logging
+import os
 from datetime import datetime
+from logging.handlers import RotatingFileHandler
 
 from telegram import BotCommand, InlineKeyboardMarkup, \
     InlineKeyboardButton, InlineQueryResultsButton, Update
@@ -31,8 +33,8 @@ import settings
 import simple_commands
 from actions import (do_call_bluff, do_draw, do_play_card, do_skip, end_game,
                      is_action_allowed, start_player_countdown)
-from config import (DEFAULT_GAMEMODE, MIN_PLAYERS, STALE_GAME_TIMEOUT,
-                    WAITING_TIME)
+from config import (DEFAULT_GAMEMODE, LOG_FILE, LOG_LEVEL, MIN_PLAYERS,
+                    STALE_GAME_TIMEOUT, WAITING_TIME)
 from errors import (AlreadyJoinedError, DeckEmptyError, GameAlreadyRunningError,
                     LobbyClosedError, NoGameInChatError, NotEnoughPlayersError)
 from internationalization import (_, __, game_locale_stack, game_locales,
@@ -47,8 +49,8 @@ from start_bot import start_bot
 from uno_update_processor import topic_id
 from utils import display_name
 from utils import (answer_async, drain_background_tasks, error,
-                   fire_and_forget, game_is_running, safe_call, send_async,
-                   user_is_creator, user_is_creator_or_admin)
+                   fire_and_forget, game_is_running, log_name, safe_call,
+                   send_async, user_is_creator, user_is_creator_or_admin)
 
 
 logger = logging.getLogger(__name__)
@@ -124,7 +126,7 @@ async def new_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
                               "End it with /kill before starting a new one."),
                        message_thread_id=thread_id)
             return
-        end_game(existing)
+        end_game(existing, f"replaced by /new from {log_name(user)}")
         await send_async(context.bot, chat.id,
                    text=__("Game ended!", multi=existing.translate),
                    message_thread_id=thread_id)
@@ -140,6 +142,7 @@ async def new_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     game.starter = user
     game.owner.append(user.id)
     game.mode = DEFAULT_GAMEMODE
+    logger.info("%s: created by %s", game, log_name(user))
 
     # Subscribers are told once the game exists. The DMs go out in the
     # background so this handler does not hold the chat's lock for them.
@@ -173,7 +176,7 @@ async def kill_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if await user_is_creator_or_admin(user, game, context.bot, chat):
-        end_game(game)
+        end_game(game, f"killed by {log_name(user)}")
         await send_async(context.bot, chat.id, text=__("Game ended!", multi=game.translate),
                    message_thread_id=game.thread_id)
 
@@ -233,6 +236,8 @@ async def join_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     player = gm.player_for_user_in_chat(update.message.from_user, chat,
                                          thread_id=thread_id)
     game_thread = player.game.thread_id if player else thread_id
+    if player:
+        logger.info("%s: %s joined", player.game, log_name(player.user))
     await send_async(context.bot, chat.id,
                text=_("Joined the game"),
                reply_to_message_id=update.message.message_id,
@@ -269,10 +274,12 @@ async def leave_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     except NotEnoughPlayersError:
-        end_game(game)
+        end_game(game, f"{log_name(user)} left")
         await send_async(context.bot, chat.id, text=__("Game ended!", multi=game.translate),
                    message_thread_id=game.thread_id)
         return
+
+    logger.info("%s: %s left", game, log_name(user))
 
     if game.started and was_current:
         start_player_countdown(game, context.job_queue)
@@ -343,7 +350,8 @@ async def kick_player(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
 
             except NotEnoughPlayersError:
-                end_game(game)
+                end_game(game, f"{log_name(kicked)} was kicked by "
+                               f"{log_name(user)}")
                 await send_async(context.bot, chat.id,
                                 text=_("{0} was kicked by {1}".format(display_name(kicked), display_name(user))),
                                 message_thread_id=game.thread_id)
@@ -351,6 +359,8 @@ async def kick_player(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                 message_thread_id=game.thread_id)
                 return
 
+            logger.info("%s: %s was kicked by %s", game, log_name(kicked),
+                        log_name(user))
             if was_current:
                 start_player_countdown(game, context.job_queue)
 
@@ -464,12 +474,13 @@ async def remove_departed_player(context, game, user):
     except NoGameInChatError:
         return
     except NotEnoughPlayersError:
-        end_game(game)
+        end_game(game, f"{log_name(user)} left the group")
         await send_async(context.bot, chat.id,
                          text=__("Game ended!", multi=game.translate),
                          message_thread_id=game.thread_id)
         return
 
+    logger.info("%s: %s left the group and was removed", game, log_name(user))
     await send_async(context.bot, chat.id,
                      text=__("Removing {name} from the game",
                              multi=game.translate)
@@ -513,6 +524,8 @@ async def start_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             for player in game.players:
                 player.draw_first_hand()
+            logger.info("%s: started in %s mode with %d players", game,
+                        game.mode, len(game.players))
 
             # Arm the timer before any send, so a failed send cannot leave
             # a started game without one.
@@ -529,7 +542,7 @@ async def start_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await safe_call(context.bot.send_sticker(
                 chat.id,
                 sticker=c.STICKERS[str(game.last_card)],
-                message_thread_id=game.thread_id))
+                message_thread_id=game.thread_id), chat.id)
 
             await send_async(context.bot, chat.id,
                              text=first_message,
@@ -844,7 +857,7 @@ async def process_result(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except AttributeError:
         return
 
-    logger.debug("Selected result: " + raw_result_id)
+    logger.debug("%s chose result %s", log_name(user), raw_result_id)
 
     decoded = decode_result_id(raw_result_id)
     if decoded is None:
@@ -878,7 +891,7 @@ async def process_result(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 or not user_is_creator(user, game)):
             return
         game.set_mode(mode)
-        logger.info("Gamemode changed to {mode}".format(mode=mode))
+        logger.info("%s: mode set to %s", game, mode)
         await send_async(context.bot, chat.id,
                          text=__("Gamemode changed to {mode}".format(mode=mode)),
                          message_thread_id=game.thread_id)
@@ -887,6 +900,7 @@ async def process_result(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if anti_cheat != player.anti_cheat:
+        logger.info("%s: cheat attempt by %s", game, log_name(user))
         await send_async(context.bot, chat.id,
                          text=__("Cheat attempt by {name}", multi=game.translate)
                          .format(name=display_name(player.user)),
@@ -895,8 +909,8 @@ async def process_result(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not is_action_allowed(game, player, base_id):
         # A result list the client cached, or a move that already happened.
-        logger.info("Ignoring %s by %s: not a legal move right now",
-                    base_id, display_name(user))
+        logger.info("%s: ignoring %s by %s, not a legal move right now",
+                    game, base_id, log_name(user))
         return
 
     player.anti_cheat += 1
@@ -949,6 +963,7 @@ def reset_waiting_time(player):
 async def post_init(application):
     """Set bot commands and validate configuration on startup"""
     me = await application.bot.get_me()
+    logger.info("Running as @%s", me.username)
     if not me.supports_inline_queries:
         logger.warning("Inline mode is NOT enabled for @%s. "
                        "Players will not be able to select cards. "
@@ -974,12 +989,28 @@ async def post_init(application):
     ])
 
 
-def main():
+def setup_logging():
+    handlers: list[logging.Handler] = [logging.StreamHandler()]
+    if LOG_FILE:
+        directory = os.path.dirname(LOG_FILE)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+        handlers.append(RotatingFileHandler(
+            LOG_FILE, maxBytes=10 * 1024 * 1024, backupCount=5,
+            encoding='utf-8'))
     logging.basicConfig(
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        level=logging.INFO
+        format='%(asctime)s %(levelname)s %(name)s: %(message)s',
+        level=LOG_LEVEL,
+        handlers=handlers,
     )
-    logging.getLogger('apscheduler').setLevel(logging.WARNING)
+    # httpx logs every request at INFO, with the bot token in the URL.
+    quiet = max(logging.WARNING, logging.getLogger().level)
+    for name in ('httpx', 'httpcore', 'apscheduler'):
+        logging.getLogger(name).setLevel(quiet)
+
+
+def main():
+    setup_logging()
 
     application.add_handler(InlineQueryHandler(reply_to_query))
     application.add_handler(ChosenInlineResultHandler(process_result))

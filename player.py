@@ -18,7 +18,6 @@
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 
-import logging
 from datetime import datetime
 
 import card as c
@@ -38,7 +37,6 @@ class Player(object):
         self.cards = list()
         self.game = game
         self.user = user
-        self.logger = logging.getLogger(__name__)
 
         # Check if this player is the first player in this game.
         if game.current_player:
@@ -146,9 +144,6 @@ class Player(object):
         """Returns a list of the cards this player can play right now.
         Has no side effects, so it doubles as the legality check for a move."""
 
-        last = self.game.last_card
-        self.logger.debug("Last card was " + str(last))
-
         cards = self.cards
         if self.drew:
             cards = self.cards[-1:]
@@ -166,25 +161,19 @@ class Player(object):
 
         is_playable = True
         last = self.game.last_card
-        self.logger.debug("Checking card " + str(card))
 
         if (card.color != last.color and card.value != last.value and
                 not card.special):
-            self.logger.debug("Card's color or value doesn't match")
             is_playable = False
         elif last.value == c.DRAW_TWO and not \
                 card.value == c.DRAW_TWO and self.game.draw_counter:
-            self.logger.debug("Player has to draw and can't counter")
             is_playable = False
         elif last.special == c.DRAW_FOUR and self.game.draw_counter:
-            self.logger.debug("Player has to draw and can't counter")
             is_playable = False
         elif (last.special == c.CHOOSE or last.special == c.DRAW_FOUR) and \
                 (card.special == c.CHOOSE or card.special == c.DRAW_FOUR):
-            self.logger.debug("Can't play colorchooser on another one")
             is_playable = False
         elif not last.color:
-            self.logger.debug("Last card has no color")
             is_playable = False
 
         return is_playable

@@ -21,6 +21,8 @@ Current gamemodes available: classic, fast, wild and text. Check the details wit
 
 A chat (or forum topic) holds one game at a time. `/new` over a lobby that has not started replaces it. `/new` over a running game is refused, unless nobody has made a move for `stale_game_timeout` seconds (default 600, 0 disables this) or the caller is the game's creator or a chat admin.
 
+The bot logs to the console. `log_level` (default `INFO`) sets the detail: `INFO` logs game events such as games created, started and ended, players joining and leaving, and failed Telegram requests. `DEBUG` adds every card played and every turn timer. To also write the log to a file, set `log_file` to a path, for example `/app/data/bot.log` in Docker. The bot rotates that file at 10 MB and keeps five old files. Both options can also be set through the `LOG_LEVEL` and `LOG_FILE` environment variables.
+
 Then run the bot with `uv run bot.py`.
 
 To run the tests: `uv run pytest`.

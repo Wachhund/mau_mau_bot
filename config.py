@@ -20,6 +20,7 @@
 
 import os
 import json
+import logging
 import sys
 
 try:
@@ -68,3 +69,9 @@ MIN_PLAYERS = int(os.getenv("MIN_PLAYERS", config.get("min_players", 2)))
 # Seconds without a move after which anyone may /new over a running game.
 # The creator and chat admins can always do so. 0 disables the timeout.
 STALE_GAME_TIMEOUT = int(os.getenv("STALE_GAME_TIMEOUT", config.get("stale_game_timeout", 600)))
+
+LOG_LEVEL = str(os.getenv("LOG_LEVEL", config.get("log_level", "INFO"))).upper()
+if LOG_LEVEL not in logging.getLevelNamesMapping():
+    sys.exit("ERROR: LOG_LEVEL must be one of DEBUG, INFO, WARNING, ERROR, CRITICAL.")
+# Also write the log to this file, rotated at 10 MB. Empty means console only.
+LOG_FILE = os.getenv("LOG_FILE", config.get("log_file")) or None

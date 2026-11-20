@@ -12,13 +12,16 @@ from internationalization import __, game_locale_stack, locale_stack
 from promotions import send_promotion
 from shared_vars import gm
 from user_setting import UserSetting
-from utils import display_name, fire_and_forget, game_is_running, send_async
+from utils import (display_name, fire_and_forget, game_is_running, log_name,
+                   send_async)
 
 logger = logging.getLogger(__name__)
 
 
-def end_game(game):
-    """End the game and, now and then, advertise the other UNO bots."""
+def end_game(game, reason):
+    """End the game and, now and then, advertise the other UNO bots.
+    ``reason`` goes to the log."""
+    logger.info("%s: ended, %s", game, reason)
     gm.end_game(game)
     fire_and_forget(send_promotion(game.chat, chance=0.15,
                                    message_thread_id=game.thread_id))
@@ -84,7 +87,8 @@ def do_skip(player):
             pass
 
         game.turn()
-        logger.info("%s was skipped!", display_name(skipped_player.user))
+        logger.info("%s: %s skipped, %d seconds left", game,
+                    log_name(skipped_player.user), skipped_player.waiting_time)
         return [__("Waiting time to skip this player has "
                    "been reduced to {time} seconds.\n"
                    "Next player: {name}", multi=game.translate)
@@ -94,16 +98,14 @@ def do_skip(player):
     try:
         gm.leave_game(skipped_player.user, game.chat, thread_id=game.thread_id)
     except NotEnoughPlayersError:
-        end_game(game)
-        logger.info("%s ran out of time, game ended",
-                    display_name(skipped_player.user))
+        end_game(game, f"{log_name(skipped_player.user)} ran out of time")
         return [__("{name} ran out of time "
                    "and has been removed from the game!\n"
                    "The game ended.", multi=game.translate)
                 .format(name=display_name(skipped_player.user))]
 
-    logger.info("%s ran out of time and was removed",
-                display_name(skipped_player.user))
+    logger.info("%s: %s ran out of time and was removed", game,
+                log_name(skipped_player.user))
     return [__("{name1} ran out of time "
                "and has been removed from the game!\n"
                "Next player: {name2}", multi=game.translate)
@@ -146,6 +148,8 @@ def do_play_card(player, card_id):
                     us.first_places += 1
 
         game.players_won += 1
+        logger.info("%s: %s finished in place %d", game, log_name(user),
+                    game.players_won)
 
         try:
             gm.leave_game(user, game.chat, thread_id=game.thread_id)
@@ -157,7 +161,7 @@ def do_play_card(player, card_id):
                 if us2 and us2.stats:
                     us2.games_played += 1
 
-            end_game(game)
+            end_game(game, "one player left")
 
     return messages
 
@@ -236,8 +240,8 @@ def start_player_countdown(game, job_queue):
             data=Countdown(player, job_queue, game_locale_stack(game))
         )
 
-        logger.info("Started countdown for player: {player}. {time} seconds."
-                    .format(player=display_name(player.user), time=time))
+        logger.debug("%s: %s has %d seconds", game, log_name(player.user),
+                     time)
         player.game.job = job
 
 

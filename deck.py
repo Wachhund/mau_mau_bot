@@ -19,7 +19,6 @@
 
 
 from random import shuffle
-import logging
 
 import card as c
 from card import Card
@@ -32,20 +31,15 @@ class Deck(object):
     def __init__(self):
         self.cards = list()
         self.graveyard = list()
-        self.logger = logging.getLogger(__name__)
-
-        self.logger.debug(self.cards)
 
     def shuffle(self):
         """Shuffles the deck"""
-        self.logger.debug("Shuffling Deck")
         shuffle(self.cards)
 
     def draw(self):
         """Draws a card from this deck"""
         try:
             card = self.cards.pop()
-            self.logger.debug("Drawing card " + str(card))
             return card
         except IndexError:
             if len(self.graveyard):

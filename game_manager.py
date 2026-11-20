@@ -18,8 +18,6 @@
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 
-import logging
-
 from apscheduler.jobstores.base import JobLookupError
 
 from game import Game
@@ -44,8 +42,6 @@ class GameManager(object):
         self.userid_current = dict()      # user_id -> Player
         self.remind_dict = dict()         # chat_id -> {user_id}
 
-        self.logger = logging.getLogger(__name__)
-
     def new_game(self, chat, thread_id=None):
         """Create a new game in this chat/topic. Singleton per (chat, topic)."""
         existing = self.game_for_chat_topic(chat.id, thread_id)
@@ -56,8 +52,6 @@ class GameManager(object):
             # An empty stale lobby: drop it before replacing.
             self._forget_game(existing)
 
-        self.logger.debug("Creating new game in chat %s topic %s",
-                          chat.id, thread_id)
         game = Game(chat)
         game.thread_id = thread_id
 
@@ -67,8 +61,6 @@ class GameManager(object):
 
     def join_game(self, user, chat, thread_id=None):
         """Add a player to the game in this ``(chat, thread_id)``."""
-        self.logger.info("Joining game in chat %s topic %s", chat.id, thread_id)
-
         game = self.game_for_chat_topic(chat.id, thread_id)
         if game is None:
             raise NoGameInChatError()
@@ -116,8 +108,6 @@ class GameManager(object):
         """End ``game``: forget it and drop its players from the user indexes.
 
         Safe to call for a game that has already ended."""
-        self.logger.info("Game %s in chat %s ended", game.id, game.chat.id)
-
         for player in game.players:
             self._drop_player(player)
 
