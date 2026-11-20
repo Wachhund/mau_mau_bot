@@ -3,6 +3,7 @@
     "admin_list": [0],
     "open_lobby": true,
     "enable_translations": false,
+    "drop_pending_updates": false,
     "default_gamemode": "fast",
     "waiting_time": 120,
     "time_removal_after_skip": 20,

@@ -20,6 +20,8 @@
 # Modify this file if you want a different startup sequence, for example using
 # a Webhook
 
+from config import DROP_PENDING_UPDATES
+
 
 def start_bot(application):
-    application.run_polling()
+    application.run_polling(drop_pending_updates=DROP_PENDING_UPDATES)

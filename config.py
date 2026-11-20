@@ -42,12 +42,17 @@ if isinstance(ADMIN_LIST, str):
 
 OPEN_LOBBY = os.getenv("OPEN_LOBBY", config.get("open_lobby", True))
 ENABLE_TRANSLATIONS = os.getenv("ENABLE_TRANSLATIONS", config.get("enable_translations", False))
+# Discard updates that arrived while the bot was offline.
+DROP_PENDING_UPDATES = os.getenv("DROP_PENDING_UPDATES", config.get("drop_pending_updates", False))
 
 if isinstance(OPEN_LOBBY, str):
     OPEN_LOBBY = OPEN_LOBBY.lower() in ("yes", "true", "t", "1")
 
 if isinstance(ENABLE_TRANSLATIONS, str):
     ENABLE_TRANSLATIONS = ENABLE_TRANSLATIONS.lower() in ("yes", "true", "t", "1")
+
+if isinstance(DROP_PENDING_UPDATES, str):
+    DROP_PENDING_UPDATES = DROP_PENDING_UPDATES.lower() in ("yes", "true", "t", "1")
 
 DEFAULT_GAMEMODE = os.getenv("DEFAULT_GAMEMODE", config.get("default_gamemode", "fast"))
 WAITING_TIME = int(os.getenv("WAITING_TIME", config.get("waiting_time", 120)))

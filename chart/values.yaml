@@ -12,6 +12,7 @@ config:
     - 0
   open_lobby: true
   enable_translations: false
+  drop_pending_updates: false
   workers: 32
   default_gamemode: fast
   waiting_time: 120
