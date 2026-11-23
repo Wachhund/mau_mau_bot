@@ -102,10 +102,10 @@ async def locale_select(update: Update, context: ContextTypes.DEFAULT_TYPE):
         _.pop()
 
 def register():
-    application.add_handler(CommandHandler('settings', show_settings))
-    application.add_handler(MessageHandler(filters.Regex('^([' + '📊' +
-                                                        '🌍' +
-                                                        '❌' + ']) .+$'),
-                                        kb_select))
-    application.add_handler(MessageHandler(filters.Regex(r'^(\w\w_\w\w) - .*'),
-                                        locale_select))
+    new_msg = filters.UpdateType.MESSAGE
+    application.add_handler(CommandHandler('settings', show_settings, new_msg))
+    application.add_handler(MessageHandler(
+        new_msg & filters.Regex('^([' + '📊' + '🌍' + '❌' + ']) .+$'),
+        kb_select))
+    application.add_handler(MessageHandler(
+        new_msg & filters.Regex(r'^(\w\w_\w\w) - .*'), locale_select))

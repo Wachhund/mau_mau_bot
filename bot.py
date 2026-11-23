@@ -1015,24 +1015,26 @@ def main():
     application.add_handler(InlineQueryHandler(reply_to_query))
     application.add_handler(ChosenInlineResultHandler(process_result))
     application.add_handler(CallbackQueryHandler(select_game))
-    application.add_handler(CommandHandler('start', start_game))
-    application.add_handler(CommandHandler('new', new_game))
-    application.add_handler(CommandHandler('kill', kill_game))
-    application.add_handler(CommandHandler('join', join_game))
-    application.add_handler(CommandHandler('leave', leave_game))
-    application.add_handler(CommandHandler('kick', kick_player))
-    application.add_handler(CommandHandler('open', open_game))
-    application.add_handler(CommandHandler('close', close_game))
+    # Handlers read update.message, which is None for edited messages.
+    new_msg = filters.UpdateType.MESSAGE
+    application.add_handler(CommandHandler('start', start_game, new_msg))
+    application.add_handler(CommandHandler('new', new_game, new_msg))
+    application.add_handler(CommandHandler('kill', kill_game, new_msg))
+    application.add_handler(CommandHandler('join', join_game, new_msg))
+    application.add_handler(CommandHandler('leave', leave_game, new_msg))
+    application.add_handler(CommandHandler('kick', kick_player, new_msg))
+    application.add_handler(CommandHandler('open', open_game, new_msg))
+    application.add_handler(CommandHandler('close', close_game, new_msg))
     application.add_handler(CommandHandler('enable_translations',
-                                           enable_translations))
+                                           enable_translations, new_msg))
     application.add_handler(CommandHandler('disable_translations',
-                                           disable_translations))
-    application.add_handler(CommandHandler('skip', skip_player))
-    application.add_handler(CommandHandler('notify_me', notify_me))
+                                           disable_translations, new_msg))
+    application.add_handler(CommandHandler('skip', skip_player, new_msg))
+    application.add_handler(CommandHandler('notify_me', notify_me, new_msg))
     simple_commands.register()
     settings.register()
-    application.add_handler(MessageHandler(filters.StatusUpdate.LEFT_CHAT_MEMBER,
-                                           status_update))
+    application.add_handler(MessageHandler(
+        new_msg & filters.StatusUpdate.LEFT_CHAT_MEMBER, status_update))
     application.add_error_handler(error)
     application.post_init = post_init
     application.post_stop = drain_background_tasks

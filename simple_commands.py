@@ -19,7 +19,7 @@
 
 from telegram import Update
 from telegram.constants import ParseMode
-from telegram.ext import CommandHandler, ContextTypes
+from telegram.ext import CommandHandler, ContextTypes, filters
 
 from pony.orm import db_session
 from user_setting import UserSetting
@@ -170,8 +170,9 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def register():
-    application.add_handler(CommandHandler('help', help_handler))
-    application.add_handler(CommandHandler('source', source))
-    application.add_handler(CommandHandler('news', news))
-    application.add_handler(CommandHandler('stats', stats))
-    application.add_handler(CommandHandler('modes', modes))
+    new_msg = filters.UpdateType.MESSAGE
+    application.add_handler(CommandHandler('help', help_handler, new_msg))
+    application.add_handler(CommandHandler('source', source, new_msg))
+    application.add_handler(CommandHandler('news', news, new_msg))
+    application.add_handler(CommandHandler('stats', stats, new_msg))
+    application.add_handler(CommandHandler('modes', modes, new_msg))
