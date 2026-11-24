@@ -29,12 +29,13 @@ from telegram.ext import InlineQueryHandler, ChosenInlineResultHandler, \
     CommandHandler, MessageHandler, filters, CallbackQueryHandler, ContextTypes
 
 import card as c
+import load_stats
 import settings
 import simple_commands
 from actions import (do_call_bluff, do_draw, do_play_card, do_skip, end_game,
                      is_action_allowed, start_player_countdown)
 from config import (DEFAULT_GAMEMODE, LOG_FILE, LOG_LEVEL, MIN_PLAYERS,
-                    STALE_GAME_TIMEOUT, WAITING_TIME)
+                    STALE_GAME_TIMEOUT, STATS_INTERVAL, WAITING_TIME)
 from errors import (AlreadyJoinedError, DeckEmptyError, GameAlreadyRunningError,
                     LobbyClosedError, NoGameInChatError, NotEnoughPlayersError)
 from internationalization import (_, __, game_locale_stack, game_locales,
@@ -987,6 +988,12 @@ async def post_init(application):
         BotCommand('source', 'See source information'),
         BotCommand('news', 'All news about this bot'),
     ])
+    load_stats.start(STATS_INTERVAL)
+
+
+async def post_stop(application):
+    load_stats.stop()
+    await drain_background_tasks()
 
 
 def setup_logging():
@@ -1035,9 +1042,10 @@ def main():
     settings.register()
     application.add_handler(MessageHandler(
         new_msg & filters.StatusUpdate.LEFT_CHAT_MEMBER, status_update))
+    load_stats.register(application, STATS_INTERVAL)
     application.add_error_handler(error)
     application.post_init = post_init
-    application.post_stop = drain_background_tasks
+    application.post_stop = post_stop
 
     start_bot(application)
 

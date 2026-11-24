@@ -69,6 +69,9 @@ MIN_PLAYERS = int(os.getenv("MIN_PLAYERS", config.get("min_players", 2)))
 # Seconds without a move after which anyone may /new over a running game.
 # The creator and chat admins can always do so. 0 disables the timeout.
 STALE_GAME_TIMEOUT = int(os.getenv("STALE_GAME_TIMEOUT", config.get("stale_game_timeout", 600)))
+# Seconds between log lines with update counts, loop lag, games and memory.
+# 0 disables them.
+STATS_INTERVAL = int(os.getenv("STATS_INTERVAL", config.get("stats_interval", 600)))
 
 LOG_LEVEL = str(os.getenv("LOG_LEVEL", config.get("log_level", "INFO"))).upper()
 if LOG_LEVEL not in logging.getLevelNamesMapping():

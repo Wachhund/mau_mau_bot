@@ -20,6 +20,7 @@ config:
   time_removal_after_skip: 20
   min_fast_turn_time: 15
   min_players: 2
+  stats_interval: 600
   log_level: INFO
 
 defaultPodOptions:

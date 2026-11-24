@@ -11,6 +11,7 @@
     "min_fast_turn_time": 15,
     "min_players": 2,
     "stale_game_timeout": 600,
+    "stats_interval": 600,
     "log_level": "INFO",
     "log_file": ""
 }

@@ -24,6 +24,7 @@ from telegram.ext import AIORateLimiter, Application
 
 from database import db
 from game_manager import GameManager
+import user_setting  # noqa: F401  defines the entity before generate_mapping
 from uno_update_processor import UnoUpdateProcessor
 
 db.bind('sqlite', os.getenv('UNO_DB', 'uno.sqlite3'), create_db=True)
